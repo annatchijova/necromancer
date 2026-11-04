@@ -12,6 +12,7 @@ requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.110",
   "uvicorn>=0.29",
+  "mcp>=2.3,<3",
 ]
 
 [project.optional-dependencies]
@@ -22,6 +23,7 @@ dev = [
 
 [project.scripts]
 necromancer = "necromancer.cli:main"
+necromancer-mcp = "necromancer.mcp_server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

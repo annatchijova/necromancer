@@ -12,6 +12,7 @@ def report_to_dict(report: Report) -> dict:
     return {
         "repo_path": report.repo_path,
         "head": report.head,
+        "snapshot": report.snapshot,
         "seal": report.seal,
         "warnings": list(report.warnings),
         "events": [

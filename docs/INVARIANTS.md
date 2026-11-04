@@ -41,7 +41,28 @@ never follows instructions embedded in its files or commit messages, and
 never fetches URLs found inside it. Excavation uses an allowlist of
 read-only Git commands and never writes to the target repository.
 
-## I6. Degradation is honest
+## I7. Models are interchangeable investigators, never authorities
+
+NECROMANCER is model-agnostic. No vendor is a runtime requirement, and
+the deterministic core never calls a model. Providers (offline,
+OpenAI-compatible, Ollama, or a future adapter) receive only the sealed
+summary and may only add `HYPOTHESIS` rows. The MCP server exposes the
+same evidence to external clients and calls no model at all.
+
+## I8. A claim inherits only evidence bound to it
+
+A `FIXED` claim may only take a verdict from a commit that shares
+evidence with it: the claim originates in that commit, or they share
+content in the message or the changed paths. Binding a claim to the
+newest fix in the repository is batch laundering and is forbidden.
+
+## I9. Snapshot scope is explicit
+
+Every hash, text and verdict describes one declared scope: `head`
+(committed blobs, the default) or `worktree` (files on disk, with the
+divergence from HEAD listed). The two are never mixed silently.
+
+## I10. Degradation is honest
 
 States are `PASS`, `WARN` and `FAIL`, never a uniform green. An absent
 optional component degrades its feature and says so. When the available

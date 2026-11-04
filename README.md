@@ -45,6 +45,16 @@ necromancer excavate /path/to/abandoned-repo --out report.json --markdown report
 
 The target repository is only read. Its code is never executed.
 
+As an MCP server, for external clients that do their own reasoning:
+
+```bash
+necromancer-mcp
+```
+
+Language models are optional and interchangeable (offline mode,
+OpenAI-compatible APIs, local Ollama). None is required, and none can
+change a verdict. Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ### License
 
 Apache-2.0. See [LICENSE](LICENSE).
@@ -89,6 +99,16 @@ necromancer excavate /ruta/al-repo-abandonado --out report.json --markdown repor
 ```
 
 El repositorio analizado solo se lee. Su código nunca se ejecuta.
+
+Como servidor MCP, para clientes externos que razonan por su cuenta:
+
+```bash
+necromancer-mcp
+```
+
+Los modelos de lenguaje son opcionales e intercambiables (modo offline,
+APIs compatibles con OpenAI, Ollama local). Ninguno es obligatorio y
+ninguno puede cambiar un veredicto. Arquitectura: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ### Licencia
 

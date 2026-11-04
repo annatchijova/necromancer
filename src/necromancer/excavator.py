@@ -42,6 +42,11 @@ class Excavation:
     artifacts: list[Artifact] = field(default_factory=list)
     texts: dict[str, str] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    # Snapshot scope: every artifact hash and text describes exactly this
+    # scope. "head" reads committed blobs; "worktree" reads the files on
+    # disk and reports how they diverge from HEAD.
+    snapshot: str = "head"
+    divergent_files: list[str] = field(default_factory=list)
 
 
 def _git(repo: Path, args: list[str]) -> str:
@@ -57,6 +62,22 @@ def _git(repo: Path, args: list[str]) -> str:
     )
     if proc.returncode != 0:
         raise ExcavationError(f"git {' '.join(args[:2])} failed: {proc.stderr.strip()[:300]}")
+    return proc.stdout
+
+
+def _git_bytes(repo: Path, args: list[str]) -> bytes:
+    if not args or args[0] not in ALLOWED_SUBCOMMANDS:
+        raise ExcavationError(f"git subcommand not allowlisted: {args[:1]}")
+    env = dict(os.environ)
+    env["GIT_OPTIONAL_LOCKS"] = "0"
+    env["GIT_PAGER"] = "cat"
+    env["PAGER"] = "cat"
+    proc = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        capture_output=True, timeout=60, env=env, check=False,
+    )
+    if proc.returncode != 0:
+        raise ExcavationError(f"git {' '.join(args[:2])} failed")
     return proc.stdout
 
 
@@ -82,9 +103,11 @@ def _kind_for(path: str) -> str:
     return "OTHER"
 
 
-def excavate(raw_path: str) -> Excavation:
+def excavate(raw_path: str, snapshot: str = "head") -> Excavation:
+    if snapshot not in ("head", "worktree"):
+        raise ExcavationError(f"snapshot must be 'head' or 'worktree', got {snapshot!r}")
     repo = resolve_repo(raw_path)
-    result = Excavation(repo_path=str(repo), head="", current_branch="")
+    result = Excavation(repo_path=str(repo), head="", current_branch="", snapshot=snapshot)
     result.head = _git(repo, ["rev-parse", "HEAD"]).strip()
     result.current_branch = _git(repo, ["rev-parse", "--abbrev-ref", "HEAD"]).strip()
 
@@ -137,14 +160,39 @@ def excavate(raw_path: str) -> Excavation:
 
     tree_raw = _git(repo, ["ls-tree", "-r", "--name-only", "HEAD"])
     for rel in [line.strip() for line in tree_raw.splitlines() if line.strip()]:
-        full = repo / rel
         kind = _kind_for(rel)
-        if not full.is_file():
-            result.warnings.append(f"tracked file missing in worktree: {rel}")
-            continue
-        data = full.read_bytes()
+        if snapshot == "head":
+            # Committed blobs only: uncommitted worktree edits can never
+            # leak into a HEAD investigation.
+            try:
+                data = _git_bytes(repo, ["show", f"HEAD:{rel}"])
+            except ExcavationError:
+                result.warnings.append(f"tracked file unreadable at HEAD: {rel}")
+                continue
+        else:
+            full = repo / rel
+            if not full.is_file():
+                result.warnings.append(f"tracked file missing in worktree: {rel}")
+                continue
+            data = full.read_bytes()
+            try:
+                head_data = _git_bytes(repo, ["show", f"HEAD:{rel}"])
+            except ExcavationError:
+                head_data = data
+            if hashlib.sha256(data).hexdigest() != hashlib.sha256(head_data).hexdigest():
+                result.divergent_files.append(rel)
         digest = hashlib.sha256(data).hexdigest()
         result.artifacts.append(Artifact(path=rel, sha256=digest, size=len(data), kind=kind))
         if kind in ("DOC", "CODE", "TEST") and len(data) <= MAX_TEXT_BYTES:
             result.texts[rel] = data.decode("utf-8", errors="replace")
+    if snapshot == "worktree":
+        result.warnings.append(
+            "snapshot=worktree: file contents include uncommitted changes; "
+            "untracked files are not part of the snapshot"
+        )
+        if result.divergent_files:
+            result.warnings.append(
+                f"snapshot=worktree: {len(result.divergent_files)} tracked file(s) "
+                f"differ from HEAD: {', '.join(sorted(result.divergent_files)[:8])}"
+            )
     return result

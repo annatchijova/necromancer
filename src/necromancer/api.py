@@ -24,6 +24,8 @@ app.add_middleware(
 
 class ExcavateRequest(BaseModel):
     path: str
+    snapshot: str = "head"
+    provider: str = "offline"
 
 
 @app.get("/health")
@@ -34,7 +36,8 @@ def health() -> dict:
 @app.post("/excavate")
 def excavate_endpoint(request: ExcavateRequest) -> dict:
     try:
-        report = investigate(request.path)
-    except ExcavationError as error:
+        report = investigate(request.path, snapshot=request.snapshot,
+                             provider_name=request.provider)
+    except (ExcavationError, ValueError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return report_to_dict(report)

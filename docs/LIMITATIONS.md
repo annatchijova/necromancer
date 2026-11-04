@@ -18,8 +18,17 @@ an exaggerated capability is a defect.
   rewritten history, or work that only ever existed in an issue tracker
   is invisible here and is reported as missing evidence, never as proof
   that it did not happen.
-- The hosted-model provider is an adapter boundary. Without configured
-  credentials the system stays in deterministic offline mode and says so.
-  No model output is ever invented to fill the gap.
+- Model inference is optional and provider-neutral (offline templates,
+  any OpenAI-compatible endpoint, or local Ollama). Without configuration
+  the system stays in deterministic offline mode and says so. No model
+  output is ever invented to fill the gap, and malformed model output is
+  rejected instead of repaired into a plausible story.
+- The MCP server and the HTTP API excavate on each call and return the
+  full report; there is no investigation cache yet, so very large
+  histories pay the excavation cost per tool call.
+- Claim-to-fix binding is lexical: shared content tokens, changed paths,
+  or claim origin. A fix described in completely different words than the
+  claim will read as `UNVERIFIED` even when a human would link them.
+  That false negative is preferred over a laundered false positive.
 - File contents are indexed up to a size cap; very large artifacts are
   hashed but not text-searched, which can lower a claim to `UNVERIFIED`.

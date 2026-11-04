@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from pathlib import Path
 
 from .excavator import Excavation
 from .models import (
@@ -110,14 +111,68 @@ def _corpora(excavation: Excavation) -> tuple[str, str, dict[str, str]]:
 
 
 def _fix_commits(excavation: Excavation):
+    from .excavator import CODE_SUFFIXES
+
     return [
         commit for commit in excavation.commits
         if any(word in f"{commit.subject} {commit.body}".lower() for word in _FIX_WORDS)
         and any(
-            next((a.kind for a in excavation.artifacts if a.path == path), "CODE") == "CODE"
+            Path(path).suffix.lower() in CODE_SUFFIXES
             for _status, path in commit.files
         )
     ]
+
+
+def _word_set(text: str) -> set[str]:
+    return {
+        word for word in re.findall(r"[a-záéíóúñü0-9][a-záéíóúñü0-9\-]{2,}", text.lower())
+        if word not in _STOPWORDS
+    }
+
+
+_GENERIC_VERB_WORDS = {
+    "fix", "fixed", "fixes", "patched", "resolved", "implemented", "completed",
+    "verified", "tested", "corregido", "corregida", "resuelto", "resuelta",
+    "implementado", "implementada", "completado", "verificado", "probado",
+}
+
+
+def _bind_fix_commit(claim: Claim, candidates):
+    """Bind a FIXED claim to one specific commit, or to none.
+
+    Invariant: a claim may only inherit a commit verdict when the two share
+    evidence — the claim originates in that commit, or they share content
+    tokens in the message or in the changed file paths. Picking the newest
+    fix in the repository (batch laundering) is forbidden.
+    """
+    claim_tokens = set(_tokens(claim.text)) - _GENERIC_VERB_WORDS
+    scored: list[tuple[int, object]] = []
+    for commit in candidates:
+        score = 0
+        if claim.source_kind == "COMMIT" and (
+            claim.origin == f"commit:{commit.commit_hash}"
+            or claim.source_ref == commit.commit_hash[:12]
+        ):
+            score += 5
+        message_tokens = _word_set(f"{commit.subject} {commit.body}") - _GENERIC_VERB_WORDS
+        score += 2 * len(claim_tokens & message_tokens)
+        file_tokens: set[str] = set()
+        for _status, path in commit.files:
+            file_tokens |= _word_set(path.replace("/", " ").replace("_", " ").replace(".", " "))
+        score += 3 * len(claim_tokens & file_tokens)
+        if claim.source_kind == "DOC" and any(
+            path == claim.source_ref for _status, path in commit.files
+        ):
+            score += 3
+        if score >= 2:
+            scored.append((score, commit))
+    if not scored:
+        return None
+    best = max(score for score, _commit in scored)
+    tied = [commit for score, commit in scored if score == best]
+    tied.sort(key=lambda commit: commit.commit_hash)
+    tied.sort(key=lambda commit: commit.date_iso, reverse=True)
+    return tied[0], best
 
 
 def evaluate_claims(excavation: Excavation, claims: list[Claim]):
@@ -143,15 +198,20 @@ def evaluate_claims(excavation: Excavation, claims: list[Claim]):
         token_in_tests = [t for t in tokens if t in tests or any(t in p.lower() for p in test_paths)]
 
         if claim.verb in ("FIXED", "RESOLVED"):
-            if not fix_commits:
+            bound = _bind_fix_commit(claim, fix_commits)
+            if bound is None:
                 claim.state = ClaimState.UNVERIFIED
-                claim.rationale = "No fix commit changing code was found. Absence of evidence is not treated as disproof."
-                claim.falsifier = "Resolved by locating a fix commit on any branch or tag."
+                claim.rationale = (
+                    f"No fix commit bound to this claim was found ({len(fix_commits)} fix "
+                    "commit(s) exist but share no evidence with it). Absence of evidence "
+                    "is not treated as disproof."
+                )
+                claim.falsifier = "Resolved by locating a fix commit that shares evidence with this claim."
                 continue
-            commit = fix_commits[0]
+            commit, bind_score = bound
             changed = [path for _s, path in commit.files]
             links.append(EvidenceLink(claim.claim_id, commit.commit_hash[:12], Relation.SUPPORTS,
-                                      f"Fix commit {commit.commit_hash[:8]} changed {', '.join(changed[:4])}"))
+                                      f"Bound fix commit {commit.commit_hash[:8]} (binding score {bind_score}) changed {', '.join(changed[:4])}"))
             has_test = any(
                 next((a.kind for a in excavation.artifacts if a.path == p), "") == "TEST"
                 for p in changed

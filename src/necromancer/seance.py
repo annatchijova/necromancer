@@ -9,7 +9,6 @@ change a claim state.
 from __future__ import annotations
 
 import hashlib
-import os
 from fractions import Fraction
 from typing import Protocol
 
@@ -92,27 +91,6 @@ class OfflineTemplateProvider:
         return out
 
 
-class ClaudeHypothesisProvider:
-    """Adapter boundary for a hosted model. Never fakes a result.
-
-    Without credentials it fails loudly so the caller stays in honest
-    offline mode. The sealed report summary is the only input a model may
-    receive; its output can only ever become Provenance.HYPOTHESIS rows.
-    """
-
-    name = "claude"
-
-    def __init__(self, api_key: str | None = None, model: str | None = None) -> None:
-        self.api_key = api_key or os.environ.get("NECROMANCER_CLAUDE_API_KEY", "")
-        self.model = model or os.environ.get("NECROMANCER_CLAUDE_MODEL", "")
-
-    def generate(self, report: Report) -> list[Hypothesis]:
-        if not self.api_key or not self.model:
-            raise RuntimeError(
-                "Claude provider is not configured (NECROMANCER_CLAUDE_API_KEY / "
-                "NECROMANCER_CLAUDE_MODEL missing). Staying in offline mode."
-            )
-        raise RuntimeError(
-            "Claude transport is not wired in this level. Offline hypotheses remain "
-            "available and no model output was invented."
-        )
+# Hosted and local model providers live in necromancer.llm behind a
+# provider-neutral interface (offline, OpenAI-compatible, Ollama). No
+# vendor-specific provider remains in this module, and none is required.

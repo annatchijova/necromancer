@@ -10,7 +10,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import coroner, ledger as ledger_mod, planner, seance
+from . import coroner, ledger as ledger_mod, llm, planner, seance
 from .canonicalize import seal
 from .chronos import build_events
 from .excavator import ExcavationError, excavate
@@ -18,8 +18,10 @@ from .export import to_json, to_markdown
 from .models import Report
 
 
-def investigate(repo_path: str, ledger_path: str | None = None) -> Report:
-    excavation = excavate(repo_path)
+def investigate(repo_path: str, ledger_path: str | None = None,
+                snapshot: str = "head", provider_name: str = "offline",
+                transport=None) -> Report:
+    excavation = excavate(repo_path, snapshot=snapshot)
     claims, links, contradictions = coroner.analyze(excavation)
     abandoned = [
         branch for branch in excavation.branches
@@ -28,6 +30,7 @@ def investigate(repo_path: str, ledger_path: str | None = None) -> Report:
     report = Report(
         repo_path=excavation.repo_path,
         head=excavation.head,
+        snapshot=excavation.snapshot,
         events=build_events(excavation),
         claims=claims,
         links=links,
@@ -36,8 +39,16 @@ def investigate(repo_path: str, ledger_path: str | None = None) -> Report:
         warnings=list(excavation.warnings),
     )
     report.seal = seal(report.sealable_payload())
-    provider = seance.OfflineTemplateProvider()
-    report.hypotheses = provider.generate(report)
+    # Interpretation happens strictly after the seal and can only add
+    # HYPOTHESIS rows. Any provider failure degrades honestly to offline.
+    try:
+        provider = llm.get_provider(provider_name, transport=transport)
+        report.hypotheses = provider.generate(report)
+    except Exception as error:  # provider boundary: never fake model output
+        report.warnings.append(
+            f"LLM provider {provider_name!r} unavailable ({error}); offline hypotheses used"
+        )
+        report.hypotheses = seance.OfflineTemplateProvider().generate(report)
     report.actions = planner.build_plan(report)
     if ledger_path:
         conn = ledger_mod.connect(ledger_path)
@@ -60,6 +71,9 @@ def main(argv: list[str] | None = None) -> int:
     exc.add_argument("--out", default="necromancer-report.json")
     exc.add_argument("--markdown", default="")
     exc.add_argument("--ledger", default="")
+    exc.add_argument("--snapshot", choices=["head", "worktree"], default="head")
+    exc.add_argument("--provider", default="offline",
+                     help="offline (default), openai-compatible, or ollama")
     ver = sub.add_parser("verify-ledger", help="Verify an evidence ledger chain")
     ver.add_argument("db")
     args = parser.parse_args(argv)
@@ -76,7 +90,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if (result["linkage_ok"] and result["integrity_ok"]) else 1
 
     try:
-        report = investigate(args.repo, ledger_path=args.ledger or None)
+        report = investigate(args.repo, ledger_path=args.ledger or None,
+                             snapshot=args.snapshot, provider_name=args.provider)
     except ExcavationError as error:
         print(f"FAIL: {error}", file=sys.stderr)
         return 2

@@ -121,6 +121,7 @@ class PlanAction:
 class Report:
     repo_path: str
     head: str
+    snapshot: str = "head"  # head (committed blobs) or worktree (disk + divergence report)
     events: list[Event] = field(default_factory=list)
     claims: list[Claim] = field(default_factory=list)
     links: list[EvidenceLink] = field(default_factory=list)
@@ -136,6 +137,7 @@ class Report:
         return {
             "repo_path": self.repo_path,
             "head": self.head,
+            "snapshot": self.snapshot,
             "events": [
                 (e.event_id, e.ts_iso, e.kind, e.title, e.refs) for e in self.events
             ],
