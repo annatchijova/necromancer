@@ -69,7 +69,9 @@ export interface InvestigationReport {
   abandoned_branches: { name: string; tip: string; merged_into_head: boolean }[];
 }
 
-const API_BASE = "http://127.0.0.1:8000";
+const API_BASE =
+  (import.meta as { env?: Record<string, string> }).env?.VITE_API_BASE ??
+  "http://127.0.0.1:8000";
 
 export async function excavate(path: string): Promise<InvestigationReport> {
   const response = await fetch(`${API_BASE}/excavate`, {
