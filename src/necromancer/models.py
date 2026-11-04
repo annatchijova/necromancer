@@ -76,6 +76,8 @@ class Claim:
     origin: str = ""  # exact source pointer (file path or commit)
     scope: str = "HEAD tree at excavation time; target code and tests not executed"
     falsifier: str = ""  # evidence that would reopen or change this verdict
+    line: int | None = None  # 1-based line in the source document, when known
+    extraction: str = "pattern:claim-verb-v1"
 
 
 @dataclass(frozen=True)
@@ -115,6 +117,9 @@ class PlanAction:
     claim_ids: tuple[str, ...]
     reversible: bool = True
     suggested_check: str = ""
+    risk: str = "low"
+    prerequisites: str = "Read-only access to the repository"
+    expected_effect: str = "Evidence is clarified without changing the repository"
 
 
 @dataclass
@@ -131,6 +136,11 @@ class Report:
     abandoned_branches: list[BranchInfo] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     seal: str = ""
+    # Workbench layers: derived or acquired context, never inside the seal.
+    source_kind: str = "local"  # local, github, synthetic
+    source_ref: str = ""
+    health: dict = field(default_factory=dict)
+    graph: dict = field(default_factory=dict)
 
     def sealable_payload(self) -> dict:
         """Deterministic payload sealed before any model narration exists."""

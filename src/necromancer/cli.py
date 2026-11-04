@@ -10,7 +10,9 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import coroner, ledger as ledger_mod, llm, planner, seance
+from . import acquire as acquire_mod
+from . import coroner, graph as graph_mod, health as health_mod
+from . import ledger as ledger_mod, llm, planner, seance
 from .canonicalize import seal
 from .chronos import build_events
 from .excavator import ExcavationError, excavate
@@ -20,7 +22,8 @@ from .models import Report
 
 def investigate(repo_path: str, ledger_path: str | None = None,
                 snapshot: str = "head", provider_name: str = "offline",
-                transport=None) -> Report:
+                transport=None, source_kind: str = "local",
+                source_ref: str = "") -> Report:
     excavation = excavate(repo_path, snapshot=snapshot)
     claims, links, contradictions = coroner.analyze(excavation)
     abandoned = [
@@ -37,6 +40,8 @@ def investigate(repo_path: str, ledger_path: str | None = None,
         contradictions=contradictions,
         abandoned_branches=abandoned,
         warnings=list(excavation.warnings),
+        source_kind=source_kind,
+        source_ref=source_ref,
     )
     report.seal = seal(report.sealable_payload())
     # Interpretation happens strictly after the seal and can only add
@@ -50,6 +55,8 @@ def investigate(repo_path: str, ledger_path: str | None = None,
         )
         report.hypotheses = seance.OfflineTemplateProvider().generate(report)
     report.actions = planner.build_plan(report)
+    report.health = health_mod.analyze_health(excavation, report)
+    report.graph = graph_mod.build_graph(report, excavation)
     if ledger_path:
         conn = ledger_mod.connect(ledger_path)
         try:
@@ -61,6 +68,28 @@ def investigate(repo_path: str, ledger_path: str | None = None,
         finally:
             conn.close()
     return report
+
+
+def investigate_source(source: str, snapshot: str = "head",
+                       provider_name: str = "offline", transport=None) -> Report:
+    """Investigate a local path or a public GitHub URL.
+
+    Acquisition failures raise AcquisitionError so callers never mistake
+    them for forensic findings.
+    """
+    if isinstance(source, str) and source.startswith("https://"):
+        path = acquire_mod.acquire_github(source)
+        report = investigate(str(path), snapshot=snapshot,
+                             provider_name=provider_name, transport=transport,
+                             source_kind="github", source_ref=source)
+        report.warnings.append(
+            "acquired via bounded clone "
+            f"(depth {acquire_mod.MAX_DEPTH}, no checkout, no submodules, "
+            "no credentials); treat history as bounded evidence"
+        )
+        return report
+    return investigate(source, snapshot=snapshot,
+                       provider_name=provider_name, transport=transport)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -90,9 +119,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if (result["linkage_ok"] and result["integrity_ok"]) else 1
 
     try:
-        report = investigate(args.repo, ledger_path=args.ledger or None,
-                             snapshot=args.snapshot, provider_name=args.provider)
-    except ExcavationError as error:
+        if args.repo.startswith("https://"):
+            report = investigate_source(args.repo, snapshot=args.snapshot,
+                                        provider_name=args.provider)
+        else:
+            report = investigate(args.repo, ledger_path=args.ledger or None,
+                                 snapshot=args.snapshot, provider_name=args.provider)
+    except (ExcavationError, acquire_mod.AcquisitionError) as error:
         print(f"FAIL: {error}", file=sys.stderr)
         return 2
     Path(args.out).write_text(to_json(report), encoding="utf-8")

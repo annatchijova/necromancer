@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from mcp.server.mcpserver import MCPServer
 
-from .cli import investigate
+from .acquire import AcquisitionError
+from .cli import investigate, investigate_source
 from .excavator import ExcavationError
 from .export import report_to_dict
 
@@ -88,6 +89,28 @@ def build_server() -> MCPServer:
         """Return the prioritized, reversible-only recovery plan for a repository."""
         report = _report(path, snapshot)
         return {"seal": report["seal"], "resurrection_plan": report["resurrection_plan"]}
+
+    @server.tool()
+    def get_health_indicators(path: str, snapshot: str = "head") -> dict:
+        """Return repository health and abandonment indicators with their evidence. Indicators, never a verdict."""
+        report = _report(path, snapshot)
+        return {"seal": report["seal"], "health": report["health"]}
+
+    @server.tool()
+    def get_evidence_graph(path: str, snapshot: str = "head") -> dict:
+        """Return the typed evidence graph (claims, commits, files, hypotheses, actions). Speculative edges are labeled."""
+        report = _report(path, snapshot)
+        return {"seal": report["seal"], "graph": report["graph"]}
+
+    @server.tool()
+    def acquire_github_repository(url: str, snapshot: str = "head") -> dict:
+        """Acquire a public https://github.com repository into an isolated bounded workspace and return its sealed report. Only github.com HTTPS URLs are accepted; acquisition failures are errors, not findings."""
+        if snapshot not in ("head", "worktree"):
+            raise ValueError("snapshot must be 'head' or 'worktree'")
+        try:
+            return report_to_dict(investigate_source(url, snapshot=snapshot))
+        except (ExcavationError, AcquisitionError, ValueError) as error:
+            raise ValueError(str(error)) from error
 
     return server
 

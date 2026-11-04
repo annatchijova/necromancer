@@ -20,6 +20,9 @@ EXPECTED_TOOLS = {
     "get_contradictions",
     "get_hypothesis_context",
     "get_resurrection_plan",
+    "get_health_indicators",
+    "get_evidence_graph",
+    "acquire_github_repository",
 }
 
 

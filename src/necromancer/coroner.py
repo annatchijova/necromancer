@@ -70,15 +70,21 @@ def extract_claims(excavation: Excavation) -> list[Claim]:
     seen: set[str] = set()
     doc_paths = {a.path for a in excavation.artifacts if a.kind == "DOC"}
     for path in sorted(doc_paths):
-        for sentence in _sentences(excavation.texts.get(path, "")):
-            verb = _verb_of(sentence)
-            if verb is None:
-                continue
-            claim_id = _claim_id(path, sentence)
-            if claim_id in seen:
-                continue
-            seen.add(claim_id)
-            claims.append(Claim(claim_id, sentence, "DOC", path, verb, origin=path))
+        for lineno, line_text in enumerate(
+            excavation.texts.get(path, "").splitlines(), start=1
+        ):
+            for sentence in _sentences(line_text):
+                verb = _verb_of(sentence)
+                if verb is None:
+                    continue
+                claim_id = _claim_id(path, sentence)
+                if claim_id in seen:
+                    continue
+                seen.add(claim_id)
+                claims.append(Claim(
+                    claim_id, sentence, "DOC", path, verb,
+                    origin=f"{path}:{lineno}", line=lineno,
+                ))
     for commit in excavation.commits:
         for sentence in _sentences(f"{commit.subject}. {commit.body}"):
             verb = _verb_of(sentence)

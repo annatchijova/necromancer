@@ -45,6 +45,46 @@ necromancer excavate /path/to/abandoned-repo --out report.json --markdown report
 
 The target repository is only read. Its code is never executed.
 
+### Run the workbench locally
+
+First time only, from the repository root:
+
+```bash
+cd necromancer
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+cd frontend
+npm install
+cd ..
+```
+
+Every time you want to use it, open two terminals.
+
+Terminal 1, the API (from the repository root, virtualenv active):
+
+```bash
+source .venv/bin/activate
+uvicorn necromancer.api:app --port 8000
+```
+
+Terminal 2, the interface:
+
+```bash
+cd frontend
+npm run dev
+```
+
+Then open http://localhost:5173 in your browser and investigate.
+
+If port 8000 or 5173 is already taken on your machine, use free ones
+instead and tell the interface where the API went. Terminal 1:
+`uvicorn necromancer.api:app --port 8765`. Terminal 2:
+`VITE_API_BASE=http://127.0.0.1:8765 npm run dev -- --port 5174`.
+Then open http://localhost:5174.
+
+To stop it, press Ctrl+C in both terminals.
+
 As an MCP server, for external clients that do their own reasoning:
 
 ```bash
@@ -99,6 +139,46 @@ necromancer excavate /ruta/al-repo-abandonado --out report.json --markdown repor
 ```
 
 El repositorio analizado solo se lee. Su código nunca se ejecuta.
+
+### Levantar el workbench en tu máquina
+
+Solo la primera vez, desde la raíz del repositorio:
+
+```bash
+cd necromancer
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+cd frontend
+npm install
+cd ..
+```
+
+Cada vez que quieras usarlo, abrí dos terminales.
+
+Terminal 1, la API (desde la raíz del repositorio, con el entorno activo):
+
+```bash
+source .venv/bin/activate
+uvicorn necromancer.api:app --port 8000
+```
+
+Terminal 2, la interfaz:
+
+```bash
+cd frontend
+npm run dev
+```
+
+Después abrí http://localhost:5173 en tu navegador e investigá.
+
+Si el puerto 8000 o el 5173 ya están ocupados en tu máquina, usá puertos
+libres y avisale a la interfaz dónde quedó la API. Terminal 1:
+`uvicorn necromancer.api:app --port 8765`. Terminal 2:
+`VITE_API_BASE=http://127.0.0.1:8765 npm run dev -- --port 5174`.
+Y abrí http://localhost:5174.
+
+Para apagarlo, Ctrl+C en las dos terminales.
 
 Como servidor MCP, para clientes externos que razonan por su cuenta:
 

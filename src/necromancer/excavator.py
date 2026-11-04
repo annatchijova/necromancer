@@ -8,6 +8,7 @@ written to.
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 import subprocess
 from dataclasses import dataclass, field
@@ -16,7 +17,7 @@ from pathlib import Path
 from .models import Artifact, BranchInfo, CommitRecord
 
 ALLOWED_SUBCOMMANDS = frozenset(
-    {"log", "show", "branch", "tag", "rev-parse", "ls-tree", "merge-base", "rev-list"}
+    {"log", "show", "branch", "tag", "rev-parse", "ls-tree", "merge-base", "rev-list", "cat-file"}
 )
 MAX_COMMITS = 5000
 MAX_TEXT_BYTES = 200_000
@@ -81,6 +82,42 @@ def _git_bytes(repo: Path, args: list[str]) -> bytes:
     return proc.stdout
 
 
+def _consume(stream) -> tuple[str, int, bytes | None]:
+    """Hash a byte stream incrementally; retain text only up to the cap."""
+    digest = hashlib.sha256()
+    size = 0
+    buffer = bytearray()
+    keep = True
+    while True:
+        chunk = stream.read(1 << 20)
+        if not chunk:
+            break
+        digest.update(chunk)
+        size += len(chunk)
+        if keep:
+            if size <= MAX_TEXT_BYTES:
+                buffer.extend(chunk)
+            else:
+                keep = False
+                buffer = bytearray()
+    return digest.hexdigest(), size, (bytes(buffer) if keep else None)
+
+
+def _head_blob(repo: Path, rel: str) -> tuple[str, int, bytes | None]:
+    env = dict(os.environ)
+    env["GIT_OPTIONAL_LOCKS"] = "0"
+    env["GIT_PAGER"] = "cat"
+    proc = subprocess.Popen(
+        ["git", "-C", str(repo), "cat-file", "blob", f"HEAD:{rel}"],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env,
+    )
+    assert proc.stdout is not None
+    result = _consume(proc.stdout)
+    if proc.wait() != 0:
+        raise ExcavationError(f"cannot read HEAD blob: {rel}")
+    return result
+
+
 def resolve_repo(raw: str) -> Path:
     repo = Path(raw).expanduser().resolve()
     if not repo.is_dir():
@@ -110,6 +147,11 @@ def excavate(raw_path: str, snapshot: str = "head") -> Excavation:
     result = Excavation(repo_path=str(repo), head="", current_branch="", snapshot=snapshot)
     result.head = _git(repo, ["rev-parse", "HEAD"]).strip()
     result.current_branch = _git(repo, ["rev-parse", "--abbrev-ref", "HEAD"]).strip()
+    if (repo / ".git" / "shallow").exists():
+        result.warnings.append(
+            "shallow clone: history is incomplete; missing history is reported "
+            "as missing evidence, never as proof that events did not happen"
+        )
 
     fmt = "%H%x1f%P%x1f%an%x1f%aI%x1f%s%x1f%b%x1e"
     raw_log = _git(repo, ["log", "--all", f"--max-count={MAX_COMMITS}", f"--format={fmt}"])
@@ -126,8 +168,9 @@ def excavate(raw_path: str, snapshot: str = "head") -> Excavation:
         for line in shown.splitlines():
             if "\t" not in line:
                 continue
-            status, path = line.split("\t", 1)
-            files.append((status.strip(), path.strip()))
+            parts = line.split("\t")
+            # Renames report old and new paths; the evidence path is the new one.
+            files.append((parts[0].strip(), parts[-1].strip()))
         result.commits.append(CommitRecord(
             commit_hash=commit_hash.strip(),
             parents=tuple(parents.split()) if parents.strip() else (),
@@ -158,14 +201,16 @@ def excavate(raw_path: str, snapshot: str = "head") -> Excavation:
             name, tip = line.split("\t", 1)
             result.tags.append((name.strip(), tip.strip()))
 
-    tree_raw = _git(repo, ["ls-tree", "-r", "--name-only", "HEAD"])
-    for rel in [line.strip() for line in tree_raw.splitlines() if line.strip()]:
+    # -z keeps hostile filenames (newlines, quotes) exact instead of quoted.
+    tree_raw = _git(repo, ["ls-tree", "-r", "-z", "--name-only", "HEAD"])
+    for rel in [item for item in tree_raw.split("\0") if item]:
         kind = _kind_for(rel)
         if snapshot == "head":
-            # Committed blobs only: uncommitted worktree edits can never
-            # leak into a HEAD investigation.
+            # Committed blobs only, streamed: uncommitted worktree edits can
+            # never leak into a HEAD investigation, and huge blobs are never
+            # loaded whole into memory.
             try:
-                data = _git_bytes(repo, ["show", f"HEAD:{rel}"])
+                digest, size, text_bytes = _head_blob(repo, rel)
             except ExcavationError:
                 result.warnings.append(f"tracked file unreadable at HEAD: {rel}")
                 continue
@@ -174,17 +219,23 @@ def excavate(raw_path: str, snapshot: str = "head") -> Excavation:
             if not full.is_file():
                 result.warnings.append(f"tracked file missing in worktree: {rel}")
                 continue
-            data = full.read_bytes()
+            if full.is_symlink():
+                # Never follow a tracked symlink out of the repository: its
+                # evidence content is the link target string, as in Git.
+                digest, size, text_bytes = _consume(
+                    io.BytesIO(os.readlink(full).encode("utf-8")))
+            else:
+                with full.open("rb") as handle:
+                    digest, size, text_bytes = _consume(handle)
             try:
-                head_data = _git_bytes(repo, ["show", f"HEAD:{rel}"])
+                head_digest, _head_size, _head_text = _head_blob(repo, rel)
             except ExcavationError:
-                head_data = data
-            if hashlib.sha256(data).hexdigest() != hashlib.sha256(head_data).hexdigest():
+                head_digest = digest
+            if digest != head_digest:
                 result.divergent_files.append(rel)
-        digest = hashlib.sha256(data).hexdigest()
-        result.artifacts.append(Artifact(path=rel, sha256=digest, size=len(data), kind=kind))
-        if kind in ("DOC", "CODE", "TEST") and len(data) <= MAX_TEXT_BYTES:
-            result.texts[rel] = data.decode("utf-8", errors="replace")
+        result.artifacts.append(Artifact(path=rel, sha256=digest, size=size, kind=kind))
+        if kind in ("DOC", "CODE", "TEST") and text_bytes is not None:
+            result.texts[rel] = text_bytes.decode("utf-8", errors="replace")
     if snapshot == "worktree":
         result.warnings.append(
             "snapshot=worktree: file contents include uncommitted changes; "

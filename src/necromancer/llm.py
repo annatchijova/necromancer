@@ -67,6 +67,11 @@ def _parse_hypotheses(content: str) -> list[Hypothesis]:
         ))
     if not valid:
         raise RuntimeError("model returned no usable hypotheses")
+    # Untrusted model output is size-capped before it can flood a report.
+    valid = [
+        (group, statement[:500], tuple(d[:200] for d in discriminators[:5]))
+        for group, statement, discriminators in valid[:50]
+    ]
     counts: dict[str, int] = {}
     for group, _statement, _disc in valid:
         counts[group] = counts.get(group, 0) + 1

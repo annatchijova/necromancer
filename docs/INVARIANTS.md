@@ -62,6 +62,20 @@ Every hash, text and verdict describes one declared scope: `head`
 (committed blobs, the default) or `worktree` (files on disk, with the
 divergence from HEAD listed). The two are never mixed silently.
 
+## I11. Acquisition is bounded, recorded, and never confused with findings
+
+Public acquisition accepts only `https://github.com/<owner>/<repo>`,
+clones with explicit depth and size limits, no checkout, no submodules
+and no credentials, into an isolated workspace. A failed acquisition is
+an operational error. It is never recorded as evidence about the target,
+and credentials never enter investigation artifacts.
+
+## I12. Stored investigations are never silently replaced
+
+A stored report keeps its seal forever. Reopening compares the stored
+HEAD with the repository now and reports `CURRENT` or `STALE`; newer
+contents produce a new investigation, never an edited old one.
+
 ## I10. Degradation is honest
 
 States are `PASS`, `WARN` and `FAIL`, never a uniform green. An absent

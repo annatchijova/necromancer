@@ -37,6 +37,9 @@ def build_plan(report: Report) -> list[PlanAction]:
                 claim_ids=(claim.claim_id,),
                 reversible=True,
                 suggested_check="Write a failing test for the original problem first, then confirm the current code passes it.",
+                risk="low: adds a test in your own working copy; executes nothing here",
+                prerequisites="A working copy under your control and the original problem report",
+                expected_effect="The fix gains a regression oracle that can fail",
             ))
         elif claim.state == ClaimState.UNVERIFIED:
             actions.append(PlanAction(
@@ -67,6 +70,9 @@ def build_plan(report: Report) -> list[PlanAction]:
             claim_ids=(),
             reversible=True,
             suggested_check=f"git diff HEAD...{branch.name} (read-only) and list files unique to the branch.",
+            risk="low: read-only diff; merging is a separate human decision",
+            prerequisites="The branch ref still exists locally",
+            expected_effect="Lost work on the branch is identified before any discard",
         ))
     actions.sort(key=lambda action: (action.priority, action.action_id))
     return actions

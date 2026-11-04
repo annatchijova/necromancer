@@ -13,6 +13,10 @@ def report_to_dict(report: Report) -> dict:
         "repo_path": report.repo_path,
         "head": report.head,
         "snapshot": report.snapshot,
+        "source_kind": report.source_kind,
+        "source_ref": report.source_ref,
+        "health": report.health,
+        "graph": report.graph,
         "seal": report.seal,
         "warnings": list(report.warnings),
         "events": [
@@ -23,6 +27,7 @@ def report_to_dict(report: Report) -> dict:
         "claims": [
             {"id": c.claim_id, "text": c.text, "verb": c.verb, "state": c.state.value,
              "source_kind": c.source_kind, "source_ref": c.source_ref, "origin": c.origin,
+             "line": c.line, "extraction": c.extraction,
              "scope": c.scope, "falsifier": c.falsifier, "rationale": c.rationale}
             for c in report.claims
         ],
@@ -46,7 +51,9 @@ def report_to_dict(report: Report) -> dict:
         "resurrection_plan": [
             {"id": a.action_id, "priority": a.priority, "title": a.title,
              "rationale": a.rationale, "claim_ids": list(a.claim_ids),
-             "reversible": a.reversible, "suggested_check": a.suggested_check}
+             "reversible": a.reversible, "suggested_check": a.suggested_check,
+             "risk": a.risk, "prerequisites": a.prerequisites,
+             "expected_effect": a.expected_effect}
             for a in report.actions
         ],
         "abandoned_branches": [
@@ -69,17 +76,46 @@ def to_markdown(report: Report) -> str:
     lines: list[str] = [
         "# NECROMANCER investigation report",
         "",
+        "## Scope and methodology",
+        "",
         f"Repository: `{report.repo_path}` at `{report.head[:12]}`",
+        f"Source: {report.source_kind} {report.source_ref}".strip(),
+        f"Snapshot scope: {report.snapshot} (head = committed blobs; worktree = disk plus divergence)",
+        "Method: read-only Git excavation, deterministic claim-evidence rules, "
+        "sealed before any model interpretation. Target code and tests were never executed.",
+        "The seal proves evidence integrity, not factual truth.",
+        "",
         f"Evidence seal (SHA-256): `{report.seal}`",
+        "",
+        "Reproduce: run `necromancer excavate` on the same repository and "
+        "snapshot, then compare the seal.",
         "",
         "Claim counts by epistemic level (never collapsed into one number):",
         "",
     ]
+    if report.health:
+        lines += [
+            "## Repository health indicators (not a verdict)",
+            "",
+            f"Category: {report.health.get('category')} — "
+            f"{'; '.join(report.health.get('category_evidence', []))}",
+            f"Last commit: {report.health.get('last_commit')} "
+            f"({report.health.get('days_since_last_commit')} days before investigation)",
+            f"Unmerged branches: {', '.join(report.health.get('unmerged_branches', [])) or 'none'}",
+            f"TODO/FIXME references: {report.health.get('todo_fixme_references')}; "
+            f"test files: {report.health.get('test_files')}; "
+            f"CI config present: {report.health.get('ci_config_present')}",
+            "",
+        ]
     for state in ("VERIFIED", "SUPPORTED", "CONTRADICTED", "UNVERIFIED", "NOT_DETERMINABLE"):
         lines.append(f"- {state}: {counts.get(state, 0)}")
     if report.warnings:
         lines += ["", "## Warnings", ""] + [f"- WARN: {item}" for item in report.warnings]
-    lines += ["", "## Timeline", "", "| When | Kind | Event | Evidence |", "|---|---|---|---|"]
+    lines += ["", "## Timeline", "",
+              "Times are recorded Git author dates (one clock domain). Order is "
+              "adjacency, not causation. Gaps mean no event was recorded, not "
+              "that nothing happened.", "",
+              "| When | Kind | Event | Evidence |", "|---|---|---|---|"]
     for event in report.events:
         lines.append(f"| {_cell(event.ts_iso)} | {event.kind} | {_cell(event.title)} | {_cell(', '.join(event.refs[:3]))} |")
     lines += ["", "## Claims", ""]

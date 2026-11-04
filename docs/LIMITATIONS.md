@@ -32,3 +32,18 @@ an exaggerated capability is a defect.
   That false negative is preferred over a laundered false positive.
 - File contents are indexed up to a size cap; very large artifacts are
   hashed but not text-searched, which can lower a claim to `UNVERIFIED`.
+- GitHub acquisition is a bounded clone (depth 500, 200 MB). Older
+  history is missing evidence by construction and the report says so.
+  GitHub issues, pull requests and CI history are not fetched: health
+  indicators use only what the clone contains, so `STATUS_UNKNOWN` is
+  common and correct.
+- Health indicators use the investigation wall-clock for recency and
+  therefore live outside the seal; two investigations minutes apart can
+  legitimately differ in `days_since_last_commit` on a boundary day.
+- The web graph renders a bounded projection (first nodes and edges)
+  with a full typed edge list beside it. Very large repositories need
+  the list view or the JSON export, not the drawing.
+- Snapshot comparison matches claims by deterministic claim id. A
+  reworded claim appears as removed plus added, not as changed.
+- Deleted branches and force-pushed history leave no local trace. The
+  absence is reported as missing evidence, never reconstructed.
