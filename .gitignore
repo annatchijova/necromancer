@@ -10,5 +10,6 @@ build/
 *.sqlite
 node_modules/
 frontend/dist/
+*.tsbuildinfo
 .env
 .DS_Store
