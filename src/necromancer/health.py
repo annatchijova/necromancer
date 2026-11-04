@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 
 from .excavator import Excavation
 from .models import Report
@@ -38,9 +39,64 @@ def analyze_health(excavation: Excavation, report: Report,
         if parsed is not None
     )
     texts = {path: text.lower() for path, text in excavation.texts.items()}
-    doc_text = "\n".join(
-        text for path, text in texts.items()
-        if path.lower().startswith(("readme", "docs/"))
+    # Project-scoped declarations can only come from the root README,
+    # read sentence by sentence. A research paper, a quoted example, a
+    # feature note or a negated sentence ("not to be abandoned") is not
+    # a project abandonment declaration (KRAKADYL regression, Round 4).
+    import re as _re
+
+    declarations: list[dict] = []
+    scoped_declarations: list[dict] = []
+    root_readmes = [
+        path for path in excavation.texts
+        if "/" not in path and Path(path).name.lower().startswith("readme")
+    ]
+    _scope_words = (
+        "feature", "component", "module", "branch", "plugin", "endpoint",
+        "parser", "legacy", "subsystem", "library", "service", "endpoint",
+        "característica", "componente", "módulo", "rama", "función",
+        "subsistema", "librería", "servicio",
+    )
+    # Declaration-eligible lines exclude quoted material and fenced
+    # code blocks: a README that shows an example announcement inside
+    # ``` fences or a > quote has not declared anything (Round 6
+    # red-team finding: fenced/quoted text produced EXPLICITLY_ABANDONED
+    # and SUPERSEDED). The same filter feeds every category below.
+    def eligible_lines(text: str) -> list[tuple[int, str]]:
+        out: list[tuple[int, str]] = []
+        in_fence = False
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            stripped = line.strip()
+            if stripped.startswith("```"):
+                in_fence = not in_fence
+                continue
+            if in_fence or not stripped or stripped.startswith(">"):
+                continue
+            out.append((lineno, line))
+        return out
+
+    eligible_by_path = {
+        path: eligible_lines(excavation.texts[path]) for path in root_readmes
+    }
+    for path in sorted(root_readmes):
+        for lineno, line in eligible_by_path[path]:
+            sentence = line.strip()
+            lower = sentence.lower()
+            phrase = next(
+                (item for item in _EXPLICIT_ABANDONED if item in lower), None)
+            if phrase is None:
+                continue
+            if _re.search(r"\b(not|never|no|nunca|jamás)\b[^.]{0,50}(abandon|manten)", lower):
+                continue  # negated: "not to be abandoned" declares the opposite
+            entry = {"file": path, "line": lineno, "quote": sentence[:160]}
+            if any(word in lower for word in _scope_words):
+                scoped_declarations.append({**entry, "scope": "feature/component"})
+            else:
+                declarations.append({**entry, "scope": "project"})
+    root_text = "\n".join(
+        line.lower()
+        for path in root_readmes
+        for _lineno, line in eligible_by_path[path]
     )
     # Strict code-convention markers only: the Spanish word "todo" in
     # prose or data must never count as an unfinished-work reference.
@@ -60,16 +116,19 @@ def analyze_health(excavation: Excavation, report: Report,
 
     category = "STATUS_UNKNOWN"
     evidence: list[str] = []
-    if any(phrase in doc_text for phrase in _EXPLICIT_ABANDONED):
+    if declarations:
         category = "EXPLICITLY_ABANDONED"
-        evidence.append("Documentation explicitly states the project is unmaintained or abandoned")
-    elif any(phrase in doc_text for phrase in _SUPERSEDED):
+        first = declarations[0]
+        evidence.append(
+            f"Project-scoped declaration at {first['file']}:{first['line']}: "
+            f"\"{first['quote'][:100]}\"")
+    elif any(phrase in root_text for phrase in _SUPERSEDED):
         category = "SUPERSEDED"
         evidence.append("Documentation states the project was superseded or replaced")
-    elif any(phrase in doc_text for phrase in _ARCHIVED):
+    elif any(phrase in root_text for phrase in _ARCHIVED):
         category = "ARCHIVED"
         evidence.append("Documentation states the repository is archived")
-    elif any(phrase in doc_text for phrase in _MAINTENANCE_ONLY):
+    elif any(phrase in root_text for phrase in _MAINTENANCE_ONLY):
         category = "MAINTENANCE_ONLY"
         evidence.append("Documentation states maintenance-only mode")
     elif days_since is not None and days_since >= 730:
@@ -83,6 +142,8 @@ def analyze_health(excavation: Excavation, report: Report,
 
     return {
         "category": category,
+        "declarations": declarations,
+        "scoped_declarations": scoped_declarations,
         "category_evidence": evidence,
         "as_of": now.isoformat(),
         "commit_count": len(excavation.commits),

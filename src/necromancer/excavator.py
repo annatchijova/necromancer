@@ -32,6 +32,10 @@ class ExcavationError(RuntimeError):
     pass
 
 
+class ExcavationCancelled(RuntimeError):
+    """Raised when the caller's cancellation event is set."""
+
+
 @dataclass
 class Excavation:
     repo_path: str
@@ -48,6 +52,7 @@ class Excavation:
     # disk and reports how they diverge from HEAD.
     snapshot: str = "head"
     divergent_files: list[str] = field(default_factory=list)
+    stats: dict = field(default_factory=dict)
 
 
 def _git(repo: Path, args: list[str]) -> str:
@@ -140,11 +145,20 @@ def _kind_for(path: str) -> str:
     return "OTHER"
 
 
-def excavate(raw_path: str, snapshot: str = "head") -> Excavation:
+def excavate(raw_path: str, snapshot: str = "head", progress=None,
+             cancel_event=None, max_commits: int = MAX_COMMITS) -> Excavation:
     if snapshot not in ("head", "worktree"):
         raise ExcavationError(f"snapshot must be 'head' or 'worktree', got {snapshot!r}")
     repo = resolve_repo(raw_path)
     result = Excavation(repo_path=str(repo), head="", current_branch="", snapshot=snapshot)
+
+    def _cancelled() -> None:
+        if cancel_event is not None and cancel_event.is_set():
+            raise ExcavationCancelled("excavation cancelled by caller")
+
+    def _progress(stage: str, count: int) -> None:
+        if progress is not None:
+            progress(stage, count)
     result.head = _git(repo, ["rev-parse", "HEAD"]).strip()
     result.current_branch = _git(repo, ["rev-parse", "--abbrev-ref", "HEAD"]).strip()
     if (repo / ".git" / "shallow").exists():
@@ -154,29 +168,46 @@ def excavate(raw_path: str, snapshot: str = "head") -> Excavation:
         )
 
     fmt = "%H%x1f%P%x1f%an%x1f%aI%x1f%s%x1f%b%x1e"
-    raw_log = _git(repo, ["log", "--all", f"--max-count={MAX_COMMITS}", f"--format={fmt}"])
+    # One streaming pass for the whole history (Round 4 scale work):
+    # a subprocess per commit does not survive large repositories.
+    raw_log = _git(repo, ["log", "--all", f"--max-count={max_commits}",
+                          "--name-status", f"--format={fmt}"])
     records = [chunk for chunk in raw_log.split("\x1e") if chunk.strip()]
-    if len(records) >= MAX_COMMITS:
-        result.warnings.append(f"commit history truncated at {MAX_COMMITS} commits")
+    if len(records) >= max_commits:
+        result.warnings.append(f"commit history truncated at {max_commits} commits")
+    # The record separator terminates the format block, so each commit's
+    # name-status lines lead the *next* chunk. Attribute them backwards.
     for chunk in records:
-        parts = chunk.strip("\n").split("\x1f")
+        _cancelled()
+        lines = chunk.strip("\n").splitlines()
+        index = 0
+        leading_files: list[tuple[str, str]] = []
+        while index < len(lines) and "\t" in lines[index] and "\x1f" not in lines[index]:
+            fields = lines[index].split("\t")
+            leading_files.append((fields[0].strip(), fields[-1].strip()))
+            index += 1
+        if leading_files and result.commits:
+            previous = result.commits[-1]
+            result.commits[-1] = CommitRecord(
+                commit_hash=previous.commit_hash, parents=previous.parents,
+                author=previous.author, date_iso=previous.date_iso,
+                subject=previous.subject, body=previous.body,
+                files=tuple(leading_files))
+        if index >= len(lines):
+            continue
+        parts = lines[index].split("\x1f")
         if len(parts) < 6:
             continue
-        commit_hash, parents, author, date_iso, subject, body = parts[:6]
-        files: list[tuple[str, str]] = []
-        shown = _git(repo, ["show", "--name-status", "--format=", commit_hash])
-        for line in shown.splitlines():
-            if "\t" not in line:
-                continue
-            parts = line.split("\t")
-            # Renames report old and new paths; the evidence path is the new one.
-            files.append((parts[0].strip(), parts[-1].strip()))
+        body_lines = [parts[5]] if parts[5] else []
+        body_lines.extend(
+            line for line in lines[index + 1:] if "\t" not in line and line)
         result.commits.append(CommitRecord(
-            commit_hash=commit_hash.strip(),
-            parents=tuple(parents.split()) if parents.strip() else (),
-            author=author, date_iso=date_iso, subject=subject,
-            body=body.strip(), files=tuple(files),
+            commit_hash=parts[0].strip(),
+            parents=tuple(parts[1].split()) if parts[1].strip() else (),
+            author=parts[2], date_iso=parts[3], subject=parts[4],
+            body="\n".join(body_lines).strip(), files=(),
         ))
+    _progress("commits", len(result.commits))
 
     merged_names: set[str] = set()
     merged_raw = _git(repo, ["branch", "--merged", "HEAD", "--format=%(refname:short)"])
@@ -203,7 +234,11 @@ def excavate(raw_path: str, snapshot: str = "head") -> Excavation:
 
     # -z keeps hostile filenames (newlines, quotes) exact instead of quoted.
     tree_raw = _git(repo, ["ls-tree", "-r", "-z", "--name-only", "HEAD"])
-    for rel in [item for item in tree_raw.split("\0") if item]:
+    skipped_text = 0
+    for index, rel in enumerate([item for item in tree_raw.split("\0") if item]):
+        _cancelled()
+        if index % 50 == 0:
+            _progress("files", index)
         kind = _kind_for(rel)
         if snapshot == "head":
             # Committed blobs only, streamed: uncommitted worktree edits can
@@ -234,8 +269,22 @@ def excavate(raw_path: str, snapshot: str = "head") -> Excavation:
             if digest != head_digest:
                 result.divergent_files.append(rel)
         result.artifacts.append(Artifact(path=rel, sha256=digest, size=size, kind=kind))
-        if kind in ("DOC", "CODE", "TEST") and text_bytes is not None:
-            result.texts[rel] = text_bytes.decode("utf-8", errors="replace")
+        if kind in ("DOC", "CODE", "TEST"):
+            if text_bytes is not None:
+                result.texts[rel] = text_bytes.decode("utf-8", errors="replace")
+            else:
+                skipped_text += 1
+    result.stats = {
+        "commits": len(result.commits),
+        "artifacts": len(result.artifacts),
+        "texts_indexed": len(result.texts),
+        "texts_skipped_over_cap": skipped_text,
+        "history_truncated": len(records) >= max_commits,
+    }
+    if skipped_text:
+        result.warnings.append(
+            f"{skipped_text} file(s) hashed but not text-indexed (size cap); "
+            "claims about them degrade to UNVERIFIED, never to silence")
     if snapshot == "worktree":
         result.warnings.append(
             "snapshot=worktree: file contents include uncommitted changes; "

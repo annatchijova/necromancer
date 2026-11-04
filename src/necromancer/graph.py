@@ -91,9 +91,56 @@ def build_graph(report: Report, excavation: Excavation) -> dict:
             edge(action_id, f"claim:{claim_id}", "REQUIRES_VERIFICATION")
 
     edges.sort(key=lambda item: (item["source"], item["target"], item["relation"]))
+
+    # Investigative views over the same projection (Round 4): clusters keep
+    # hundreds of nodes navigable, fan-out flags one piece of evidence being
+    # reused against many claims, and focus neighborhoods let the UI show a
+    # claim with only its immediate evidence instead of the whole network.
+    adjacency: dict[str, set[str]] = {}
+    degree: dict[str, int] = {}
+    for item in edges:
+        adjacency.setdefault(item["source"], set()).add(item["target"])
+        adjacency.setdefault(item["target"], set()).add(item["source"])
+        degree[item["target"]] = degree.get(item["target"], 0) + 1
+        degree[item["source"]] = degree.get(item["source"], 0) + 1
+    by_kind: dict[str, list[str]] = {}
+    file_clusters: dict[str, list[str]] = {}
+    claim_states: dict[str, list[str]] = {}
+    for item in nodes.values():
+        by_kind.setdefault(item["kind"], []).append(item["id"])
+        if item["kind"] == "file":
+            path = item["ref"]
+            top = path.split("/")[0] if "/" in path else "root"
+            file_clusters.setdefault(top, []).append(item["id"])
+        if item["kind"] == "claim":
+            claim_states.setdefault(item.get("state", "UNKNOWN"), []).append(item["id"])
+    fanout = sorted(
+        (
+            {"node": node_id, "degree": count,
+             "warning": "shared evidence: one source bound to many claims; "
+                        "review the binding before trusting each contradiction"}
+            for node_id, count in degree.items()
+            if count >= 3 and nodes[node_id]["kind"] in ("evidence", "file", "contradiction")
+        ),
+        key=lambda item: (-item["degree"], item["node"]),
+    )
+    focus = {
+        node_id: sorted(neighbours)
+        for node_id, neighbours in sorted(adjacency.items())
+        if node_id.startswith("claim:")
+    }
     return {
         "nodes": sorted(nodes.values(), key=lambda item: item["id"]),
         "edges": edges,
         "relationships": list(RELATIONSHIPS),
+        "clusters": {
+            "by_kind": {key: sorted(ids) for key, ids in sorted(by_kind.items())},
+            "files_by_subsystem": {
+                key: sorted(ids) for key, ids in sorted(file_clusters.items())},
+            "claims_by_state": {
+                key: sorted(ids) for key, ids in sorted(claim_states.items())},
+        },
+        "fanout": fanout,
+        "focus": focus,
         "note": "Projection of the investigation. Speculative edges are labeled and never upgrade evidence.",
     }

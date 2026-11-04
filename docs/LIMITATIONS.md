@@ -14,6 +14,39 @@ an exaggerated capability is a defect.
   patched file, a revert touching the same files, a stub as the only
   implementation, or a document that denies another document. Many real
   false claims leave none of these traces and will read as `UNVERIFIED`.
+- Since Round 4, every contradiction is qualified. Only CONFIRMED
+  (same subject, scope and time; current or deprecated modality; bound
+  positive evidence) changes a claim to `CONTRADICTED`. Document
+  disagreement and non-current modalities are POTENTIAL review entries
+  and change nothing. This deliberately trades recall for precision:
+  true contradictions with weak shared vocabulary degrade to POTENTIAL
+  or `UNVERIFIED`. The binding score on each link is token-overlap
+  strength, not a probability. Calibration numbers come from a small
+  synthetic benchmark spent during development
+  (`benchmarks/round4/`); they are not real-world accuracy.
+- Graph investigative views (clusters, focus, fan-out) are projections
+  over the same typed edges. The fan-out threshold (>= 3 bindings) is a
+  review heuristic, not a finding.
+- Cancellation is cooperative between excavation phases and discards
+  the run; there is no partial-index resume. See
+  `docs/SCALE-BENCHMARK.md` for the measured synthetic harness, the
+  VIGÍA stress test, and the explicit list of scale work not done.
+- Round 5 measured the recall boundary explicitly: genuine
+  contradictions expressed in different vocabulary, or as guarantees
+  narrower in code than in documentation, are missed by construction
+  (planted cases P4/P5 in `benchmarks/round5/`). The engine extracts
+  those claims (VALIDATED/SANITIZED verbs) but cannot establish the
+  contradiction without semantic or execution evidence, and does not
+  fabricate it.
+- Real-world precision and recall are unmeasured. All labels applied to
+  real repositories so far are provisional machine-assisted
+  adjudication by the system's own author, not independent human
+  ground truth (`benchmarks/round5/adjudication.md`).
+- The API CORS allowlist covers the documented loopback dev ports
+  (5173/5174). Serving the frontend from any other origin yields a
+  silently empty fixture list; use the documented ports.
+- Browser verification was headless Chromium at 1280x900. Mobile
+  viewports and screen-reader behavior were not exercised.
 - History is read from the local clone as given. A shallow clone, a
   rewritten history, or work that only ever existed in an issue tracker
   is invisible here and is reported as missing evidence, never as proof

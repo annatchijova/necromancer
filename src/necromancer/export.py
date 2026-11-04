@@ -28,17 +28,21 @@ def report_to_dict(report: Report) -> dict:
             {"id": c.claim_id, "text": c.text, "verb": c.verb, "state": c.state.value,
              "source_kind": c.source_kind, "source_ref": c.source_ref, "origin": c.origin,
              "line": c.line, "extraction": c.extraction,
+             "modality": c.modality, "subject_tokens": list(c.subject_tokens),
              "scope": c.scope, "falsifier": c.falsifier, "rationale": c.rationale}
             for c in report.claims
         ],
         "links": [
             {"claim_id": link.claim_id, "evidence_ref": link.evidence_ref,
-             "relation": link.relation.value, "rationale": link.rationale}
+             "relation": link.relation.value, "rationale": link.rationale,
+             "binding_score": link.binding_score, "match_basis": link.match_basis,
+             "binding_meaning": "token-overlap strength, not a calibrated probability"}
             for link in report.links
         ],
         "contradictions": [
             {"id": c.contradiction_id, "claim_id": c.claim_id,
-             "evidence_ref": c.evidence_ref, "kind": c.kind, "detail": c.detail}
+             "evidence_ref": c.evidence_ref, "kind": c.kind, "detail": c.detail,
+             "qualification": c.qualification}
             for c in report.contradictions
         ],
         "hypotheses_not_facts": [
@@ -53,7 +57,7 @@ def report_to_dict(report: Report) -> dict:
              "rationale": a.rationale, "claim_ids": list(a.claim_ids),
              "reversible": a.reversible, "suggested_check": a.suggested_check,
              "risk": a.risk, "prerequisites": a.prerequisites,
-             "expected_effect": a.expected_effect}
+             "expected_effect": a.expected_effect, "group": a.group}
             for a in report.actions
         ],
         "abandoned_branches": [
@@ -131,11 +135,17 @@ def to_markdown(report: Report) -> str:
             f"- Falsifier: {claim.falsifier or 'not recorded'}",
             "",
         ]
-    lines += ["## Contradictions", ""]
+    lines += ["## Contradictions and potential conflicts", "",
+              "CONFIRMED entries state a defensible incompatibility and changed "
+              "the claim state. POTENTIAL entries are unreviewed conflicts; they "
+              "changed nothing and are not findings.", ""]
     if not report.contradictions:
         lines.append("None detected by the deterministic rules. This is not proof that none exist.")
     for item in report.contradictions:
-        lines.append(f"- [{item.kind}] claim `{item.claim_id}` vs `{item.evidence_ref}`: {item.detail}")
+        lines.append(
+            f"- [{item.kind} · {item.qualification}] claim `{item.claim_id}` vs "
+            f"`{item.evidence_ref}`: {item.detail} "
+            "(CONFIRMED changes the claim state; POTENTIAL is a review queue entry.)")
     lines += ["", "## Hypotheses — not facts", "",
               "Model or template proposals only. They explain evidence; they never upgrade it.", ""]
     for hyp in report.hypotheses:
@@ -143,9 +153,11 @@ def to_markdown(report: Report) -> str:
             f"- ({hyp.confidence}) {hyp.statement} "
             f"Discriminate by: {'; '.join(hyp.discriminators)}"
         )
-    lines += ["", "## Resurrection plan", ""]
+    lines += ["", "## Resurrection plan (grouped by root cause)", ""]
     for action in report.actions:
-        lines.append(f"- P{action.priority} {action.title} Check: {action.suggested_check}")
+        lines.append(
+            f"- P{action.priority} [{action.group}] {action.title} "
+            f"Claims: {', '.join(action.claim_ids) or 'none'}. Check: {action.suggested_check}")
     lines += ["", "## Limits", "",
               "Target code and tests were not executed. VERIFIED is never issued from "
               "token presence alone; trusted execution evidence is required. See docs.", ""]

@@ -165,6 +165,17 @@ select {
 .health-grid dt { color: var(--bone); font-weight: 700; }
 .health-grid dd { margin: 4px 0 0; }
 .hyp-group.unknown { border: 1px dashed var(--ochre); padding: 10px 14px; }
+.workflow {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px; list-style: none; padding: 0; margin: 0 0 20px;
+}
+.workflow li {
+  background: var(--panel); border: 1px solid var(--line); padding: 10px 12px;
+  display: grid; gap: 4px;
+}
+.workflow li.done { border-left: 3px solid var(--moss); }
+.workflow li.attention { border-left: 3px solid var(--ochre); }
+.plan-group { margin-bottom: 22px; }
 
 @media (max-width: 760px) {
   .explorer, .versus { grid-template-columns: 1fr; }

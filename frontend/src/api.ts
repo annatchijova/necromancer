@@ -14,15 +14,18 @@ export interface Claim {
   id: string; text: string; verb: string; state: ClaimState;
   source_kind: string; source_ref: string; origin: string;
   line: number | null; extraction: string;
+  modality: string; subject_tokens: string[];
   scope: string; falsifier: string; rationale: string;
 }
 
 export interface EvidenceLink {
   claim_id: string; evidence_ref: string; relation: string; rationale: string;
+  binding_score: number; match_basis: string; binding_meaning: string;
 }
 
 export interface Contradiction {
   id: string; claim_id: string; evidence_ref: string; kind: string; detail: string;
+  qualification: "CONFIRMED" | "POTENTIAL";
 }
 
 export interface Hypothesis {
@@ -33,7 +36,7 @@ export interface Hypothesis {
 export interface PlanAction {
   id: string; priority: number; title: string; rationale: string;
   claim_ids: string[]; reversible: boolean; suggested_check: string;
-  risk: string; prerequisites: string; expected_effect: string;
+  risk: string; prerequisites: string; expected_effect: string; group: string;
 }
 
 export interface Health {
@@ -56,6 +59,13 @@ export interface GraphEdge {
 
 export interface EvidenceGraph {
   nodes: GraphNode[]; edges: GraphEdge[]; relationships: string[]; note: string;
+  clusters: {
+    by_kind: Record<string, string[]>;
+    files_by_subsystem: Record<string, string[]>;
+    claims_by_state: Record<string, string[]>;
+  };
+  fanout: { node: string; degree: number; warning: string }[];
+  focus: Record<string, string[]>;
 }
 
 export interface InvestigationReport {

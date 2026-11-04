@@ -38,6 +38,9 @@ export default function App() {
   const [selectedClaim, setSelectedClaim] = useState<string>("");
   const [graphQuery, setGraphQuery] = useState("");
   const [graphRelation, setGraphRelation] = useState("");
+  const [graphSubsystem, setGraphSubsystem] = useState("");
+  const [graphState, setGraphState] = useState("");
+  const [focusMode, setFocusMode] = useState(false);
   const [selectedNode, setSelectedNode] = useState<string>("");
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [compareResult, setCompareResult] = useState<string>("");
@@ -134,11 +137,56 @@ export default function App() {
 
   const claim = report?.claims.find((item) => item.id === selectedClaim) ?? null;
   const claimLinks = report?.links.filter((link) => link.claim_id === selectedClaim) ?? [];
-  const graphNodes = (report?.graph.nodes ?? []).filter((node) =>
-    node.label.toLowerCase().includes(graphQuery.toLowerCase()));
-  const graphEdges = (report?.graph.edges ?? []).filter((edge) =>
-    !graphRelation || edge.relation === graphRelation);
   const nodeById = new Map((report?.graph.nodes ?? []).map((node) => [node.id, node]));
+  const focusNeighbours = useMemo(() => {
+    const neighbours = new Set<string>();
+    if (!report || !selectedNode) return neighbours;
+    neighbours.add(selectedNode);
+    (report.graph.focus[selectedNode] ?? []).forEach((id) => neighbours.add(id));
+    report.graph.edges.forEach((edge) => {
+      if (edge.source === selectedNode) neighbours.add(edge.target);
+      if (edge.target === selectedNode) neighbours.add(edge.source);
+    });
+    return neighbours;
+  }, [report, selectedNode]);
+  const graphNodes = (report?.graph.nodes ?? []).filter((node) => {
+    if (!node.label.toLowerCase().includes(graphQuery.toLowerCase())) return false;
+    if (graphState && node.kind === "claim" && node.state !== graphState) return false;
+    if (graphSubsystem && node.kind === "file"
+      && !(report?.graph.clusters.files_by_subsystem[graphSubsystem] ?? []).includes(node.id)) {
+      return false;
+    }
+    if (focusMode && selectedNode && !focusNeighbours.has(node.id)) return false;
+    return true;
+  });
+  const visibleNodeIds = new Set(graphNodes.map((node) => node.id));
+  const graphEdges = (report?.graph.edges ?? []).filter((edge) =>
+    (!graphRelation || edge.relation === graphRelation)
+    && visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target));
+  const confirmedCount = report?.contradictions.filter(
+    (item) => item.qualification === "CONFIRMED").length ?? 0;
+  const potentialCount = report?.contradictions.filter(
+    (item) => item.qualification === "POTENTIAL").length ?? 0;
+  const planGroups = useMemo(() => {
+    const groups = new Map<string, InvestigationReport["resurrection_plan"]>();
+    report?.resurrection_plan.forEach((action) => {
+      const list = groups.get(action.group) ?? [];
+      list.push(action);
+      groups.set(action.group, list);
+    });
+    return [...groups.entries()];
+  }, [report]);
+
+  function exportJson() {
+    if (!report) return;
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `necromancer-${report.head.slice(0, 8)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="page">
@@ -266,6 +314,23 @@ export default function App() {
             <p key={warning} className="notice">WARN: {warning}</p>
           ))}
 
+          <ol className="workflow" aria-label="Analyst workflow">
+            <li className="done"><strong>1. Discover</strong>
+              <span>Sealed investigation at {report.head.slice(0, 8)}</span></li>
+            <li className={potentialCount ? "attention" : "done"}>
+              <strong>2. Qualify</strong>
+              <span>{confirmedCount} confirmed, {potentialCount} potential conflicts need review</span></li>
+            <li className={claim ? "done" : ""}><strong>3. Investigate</strong>
+              <span>{claim ? "Claim selected in Evidence" : "Select a claim in Evidence"}</span></li>
+            <li className={compareResult ? "done" : ""}><strong>4. Compare</strong>
+              <span>{compareResult || "Select two saved investigations above"}</span></li>
+            <li><strong>5. Decide</strong>
+              <span>{report.resurrection_plan.length} grouped proposals, none executed</span></li>
+            <li><strong>6. Export</strong>
+              <span><button type="button" onClick={exportJson}>Download JSON</button>
+                {" "}Markdown: <code>necromancer excavate</code></span></li>
+          </ol>
+
           <nav className="section-nav" aria-label="Investigation sections">
             {SECTIONS.map((item) => (
               <button key={item.key} type="button"
@@ -312,6 +377,9 @@ export default function App() {
                       <div><dt>Origin</dt><dd className="mono">{claim.origin}
                         {claim.line ? ` (line ${claim.line})` : ""}</dd></div>
                       <div><dt>Extraction</dt><dd className="mono">{claim.extraction}</dd></div>
+                      <div><dt>Modality</dt><dd>{claim.modality}
+                        {claim.subject_tokens.length
+                          ? ` · subject: ${claim.subject_tokens.join(", ")}` : ""}</dd></div>
                       <div><dt>Why</dt><dd>{claim.rationale}</dd></div>
                       <div><dt>Scope</dt><dd>{claim.scope}</dd></div>
                       <div><dt>Would reopen</dt><dd>{claim.falsifier}</dd></div>
@@ -320,6 +388,8 @@ export default function App() {
                     <ul>{claimLinks.map((link) => (
                       <li key={`${link.evidence_ref}-${link.relation}`} className="mono">
                         {link.relation} -&gt; {link.evidence_ref}: {link.rationale}
+                        {" "}[binding {link.binding_score} via {link.match_basis || "tokens"};{" "}
+                        {link.binding_meaning}]
                       </li>))}
                     </ul>
                   </article>
@@ -330,16 +400,31 @@ export default function App() {
 
           {section === "contradictions" ? (
             <section><h2>Contradiction explorer</h2>
+              <p>CONFIRMED means a defensible incompatibility in the same subject,
+                scope and time. POTENTIAL is a conflict requiring human review; it
+                changes no claim state. Absence from this list is not proof that
+                no contradiction exists.</p>
               {report.contradictions.length === 0 ? (
                 <p>None detected by the deterministic rules. This is not proof that none exist.</p>
-              ) : report.contradictions.map((item) => {
-                const linked = report.claims.find((entry) => entry.id === item.claim_id);
+              ) : (["CONFIRMED", "POTENTIAL"] as const).map((qualification) => {
+                const items = report.contradictions.filter(
+                  (item) => item.qualification === qualification);
+                if (!items.length) return null;
                 return (
-                  <div key={item.id} className="versus">
-                    <div><h3>Claim</h3><p>{linked?.text ?? item.claim_id}</p>
-                      <p className="mono">{linked?.origin}</p></div>
-                    <div><h3>Contradicting evidence</h3><p>{item.detail}</p>
-                      <p className="mono">{item.evidence_ref} [{item.kind}]</p></div>
+                  <div key={qualification}>
+                    <h3>{qualification} ({items.length})</h3>
+                    {items.map((item) => {
+                      const linked = report.claims.find((entry) => entry.id === item.claim_id);
+                      return (
+                        <div key={item.id} className="versus">
+                          <div><h4>Claim</h4><p>{linked?.text ?? item.claim_id}</p>
+                            <p className="mono">{linked?.origin}
+                              {linked ? ` · modality ${linked.modality} · state ${linked.state}` : ""}</p></div>
+                          <div><h4>Contradicting evidence</h4><p>{item.detail}</p>
+                            <p className="mono">{item.evidence_ref} [{item.kind} · {item.qualification}]</p></div>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })}
@@ -369,20 +454,27 @@ export default function App() {
 
           {section === "plan" ? (
             <section><h2>Resurrection planner</h2>
-              <p>Proposals only. Nothing here executes against the repository.</p>
-              <ol className="plan">
-                {report.resurrection_plan.map((action) => (
-                  <li key={action.id}>
-                    <span className="priority">P{action.priority}</span>
-                    <strong>{action.title}</strong>
-                    <p>{action.rationale}</p>
-                    <p>Prerequisites: {action.prerequisites}</p>
-                    <p>Risk: {action.risk}</p>
-                    <p>Expected effect: {action.expected_effect}</p>
-                    <p className="mono">{action.suggested_check}</p>
-                  </li>
-                ))}
-              </ol>
+              <p>Proposals only, grouped by root cause and shared evidence.
+                Nothing here executes against the repository.</p>
+              {planGroups.map(([group, actions]) => (
+                <div key={group} className="plan-group">
+                  <h3 className="mono">{group} ({actions.length})</h3>
+                  <ol className="plan">
+                    {actions.map((action) => (
+                      <li key={action.id}>
+                        <span className="priority">P{action.priority}</span>
+                        <strong>{action.title}</strong>
+                        <p>{action.rationale}</p>
+                        <p>Claims: <span className="mono">{action.claim_ids.join(", ") || "none"}</span></p>
+                        <p>Prerequisites: {action.prerequisites}</p>
+                        <p>Risk: {action.risk}</p>
+                        <p>Expected effect: {action.expected_effect}</p>
+                        <p className="mono">{action.suggested_check}</p>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              ))}
             </section>
           ) : null}
 
@@ -399,7 +491,39 @@ export default function App() {
                   {report.graph.relationships.map((rel) => (
                     <option key={rel} value={rel}>{rel}</option>))}
                 </select>
+                <select aria-label="Filter files by subsystem" value={graphSubsystem}
+                  onChange={(event) => setGraphSubsystem(event.target.value)}>
+                  <option value="">All subsystems</option>
+                  {Object.keys(report.graph.clusters.files_by_subsystem).map((name) => (
+                    <option key={name} value={name}>{name}</option>))}
+                </select>
+                <select aria-label="Filter claims by state" value={graphState}
+                  onChange={(event) => setGraphState(event.target.value)}>
+                  <option value="">All claim states</option>
+                  {STATE_ORDER.map((state) => (
+                    <option key={state} value={state}>{state}</option>))}
+                </select>
+                <label>
+                  <input type="checkbox" checked={focusMode}
+                    onChange={(event) => setFocusMode(event.target.checked)} />
+                  {" "}Focus on selected node
+                </label>
               </div>
+              <p>
+                Showing {graphNodes.length} of {report.graph.nodes.length} nodes
+                and {graphEdges.length} of {report.graph.edges.length} edges.
+                Clusters: {Object.entries(report.graph.clusters.by_kind)
+                  .map(([kind, ids]) => `${kind} ${ids.length}`).join(" · ")}.
+              </p>
+              {report.graph.fanout.length ? (
+                <div className="notice" role="note">
+                  <strong>Shared-evidence fan-out.</strong>
+                  <ul>{report.graph.fanout.slice(0, 5).map((entry) => (
+                    <li key={entry.node} className="mono">
+                      {entry.node} (degree {entry.degree}): {entry.warning}</li>
+                  ))}</ul>
+                </div>
+              ) : null}
               <svg className="graph-svg" viewBox="0 0 960 420" role="img"
                 aria-label="Evidence graph projection">
                 {graphEdges.slice(0, 120).map((edge, index) => {

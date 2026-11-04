@@ -51,3 +51,14 @@ in the suite behaves as required in both directions.
 Any future marker or pattern change must ship with: one negative control
 that previously fired, one positive control that must still fire, and a
 before/after count on at least one real, mixed-language repository.
+
+## Round 4 continuation
+
+Marker strictness was necessary but not sufficient: the association
+itself was unqualified. Round 4 qualifies every contradiction
+(CONFIRMED vs POTENTIAL), adds the modality gate and file-scoped marker
+relevance, and measures the result in
+`docs/EPISTEMIC-CALIBRATION.md` with the versioned benchmark in
+`benchmarks/round4/`. The 9 DOC_CONFLICT items above are POTENTIAL
+review entries under the new rules; the 3 STILL_PRESENT remain
+CONFIRMED and unadjudicated.

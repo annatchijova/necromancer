@@ -78,6 +78,10 @@ class Claim:
     falsifier: str = ""  # evidence that would reopen or change this verdict
     line: int | None = None  # 1-based line in the source document, when known
     extraction: str = "pattern:claim-verb-v1"
+    # Qualification dimensions. A non-current modality (a plan, a proposal,
+    # a historical statement) can never be contradicted by current code.
+    modality: str = "CURRENT"  # CURRENT, PLANNED, PROPOSED, HISTORICAL, DEPRECATED
+    subject_tokens: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -86,6 +90,9 @@ class EvidenceLink:
     evidence_ref: str
     relation: Relation
     rationale: str
+    # Binding score is token-overlap strength, NOT a calibrated probability.
+    binding_score: int = 0
+    match_basis: str = ""  # origin, message, path, document, code
 
 
 @dataclass(frozen=True)
@@ -95,6 +102,9 @@ class Contradiction:
     evidence_ref: str
     kind: str
     detail: str
+    # CONFIRMED requires a defensible incompatibility in the same subject,
+    # scope and time. Everything else is POTENTIAL and changes no state.
+    qualification: str = "CONFIRMED"
 
 
 @dataclass(frozen=True)
@@ -120,6 +130,7 @@ class PlanAction:
     risk: str = "low"
     prerequisites: str = "Read-only access to the repository"
     expected_effect: str = "Evidence is clarified without changing the repository"
+    group: str = "general"  # root-cause group so near-duplicates collapse
 
 
 @dataclass
