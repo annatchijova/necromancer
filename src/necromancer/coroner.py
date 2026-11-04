@@ -25,7 +25,11 @@ _VERB_PATTERNS: list[tuple[str, str]] = [
     (r"\b(deprecated|deprecad\w*|removed|eliminad\w*)\b", "DEPRECATED"),
 ]
 _FIX_WORDS = ("fix", "correg", "resolv", "resuel", "patch", "solucion")
-_INCOMPLETE = ("todo", "fixme", "notimplementederror", "xxx", "incomplete")
+# Incomplete markers are code conventions, matched case-sensitively as
+# whole tokens. Substring matching on lowered text is forbidden: it fires
+# on the Spanish word "todo", on identifiers containing "xxx", and on
+# prose that merely discusses incompleteness (calibration, Round 3).
+_INCOMPLETE_RE = re.compile(r"\b(TODO|FIXME|XXX)\b|NotImplementedError")
 _NEGATIONS = ("not implemented", "not yet", "no implementad", "sin implementar", "pendiente", "not completed")
 _STOPWORDS = {
     "the", "and", "for", "with", "was", "were", "has", "have", "been", "this", "that",
@@ -224,7 +228,7 @@ def evaluate_claims(excavation: Excavation, claims: list[Claim]):
             ) or bool(token_in_tests)
             incomplete_in = [
                 p for p in changed
-                if any(marker in code_texts.get(p, "").lower() for marker in _INCOMPLETE)
+                if _INCOMPLETE_RE.search(code_texts.get(p, ""))
             ]
             reverted = next(
                 (r for r in reverts if {p for _s, p in r.files} & set(changed)), None
@@ -253,7 +257,7 @@ def evaluate_claims(excavation: Excavation, claims: list[Claim]):
                 continue
             stub_paths = [
                 p for p, text in code_texts.items()
-                if any(marker in text.lower() for marker in _INCOMPLETE)
+                if _INCOMPLETE_RE.search(text)
                 and any(t in text.lower() or t in p.lower() for t in tokens)
             ]
             negated = stub_paths[0] if stub_paths else None

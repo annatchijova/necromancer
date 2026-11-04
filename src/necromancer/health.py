@@ -42,8 +42,11 @@ def analyze_health(excavation: Excavation, report: Report,
         text for path, text in texts.items()
         if path.lower().startswith(("readme", "docs/"))
     )
+    # Strict code-convention markers only: the Spanish word "todo" in
+    # prose or data must never count as an unfinished-work reference.
     todo_refs = sum(
-        len(re.findall(r"\b(todo|fixme)\b", text)) for text in texts.values()
+        len(re.findall(r"\b(TODO|FIXME)\b|NotImplementedError", text))
+        for text in excavation.texts.values()
     )
     test_files = [a.path for a in excavation.artifacts if a.kind == "TEST"]
     code_files = [a.path for a in excavation.artifacts if a.kind == "CODE"]

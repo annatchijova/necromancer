@@ -22,9 +22,10 @@ incomplete column is simulated or presented as working.
 | Reports in JSON and Markdown with scope, method and reproduction | `export.py` |
 | Threat model and limitations | `docs/THREAT_MODEL.md`, `docs/LIMITATIONS.md` |
 
-Test baseline at this inventory: 68 backend tests passing, frontend
+Test baseline at this inventory: 71 backend tests passing, frontend
 production build passing, demo exercised end-to-end over the real HTTP
-API with synthetic fixtures.
+API with synthetic fixtures. Detector calibration against a real
+mixed-language repository is recorded in `docs/CALIBRATION.md`.
 
 ## Incomplete (explicitly)
 
