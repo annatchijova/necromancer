@@ -12,4 +12,14 @@ node_modules/
 frontend/dist/
 *.tsbuildinfo
 .env
+.env.*
+!.env.example
 .DS_Store
+.idea/
+.vscode/
+*.log
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+necromancer-report.*
