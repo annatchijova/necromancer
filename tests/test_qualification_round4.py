@@ -239,6 +239,35 @@ def test_universal_validation_claim_detects_partial_parameter_validation(tmp_pat
                for item in report.contradictions if item.claim_id == claim.claim_id)
 
 
+def test_structural_search_excludes_test_helpers_and_reuses_missing_candidate(
+        tmp_path, monkeypatch):
+    from necromancer import coroner
+
+    repo = _make(tmp_path, "test-helper-scope", {
+        "README.md": "# P\n\nUser output is sanitized.\nInvoice output is sanitized.\n",
+        "tests/helpers.py": "def sanitize_output(value):\n    return value\n",
+        "output.py": "def render_output(value):\n    return value\n",
+    })
+    search = coroner._identity_sanitizer
+    search_calls = 0
+
+    def count_search(*args):
+        nonlocal search_calls
+        search_calls += 1
+        return search(*args)
+
+    monkeypatch.setattr(coroner, "_identity_sanitizer", count_search)
+    report = investigate(str(repo))
+
+    claim_ids = {claim.claim_id for claim in report.claims if claim.verb == "SANITIZED"}
+    assert len(claim_ids) == 2
+    assert all(
+        item.kind != "IDENTITY_SANITIZER"
+        for item in report.contradictions if item.claim_id in claim_ids
+    )
+    assert search_calls == 1
+
+
 def test_sanitization_claim_detects_identity_sanitizer(tmp_path):
     repo = _make(tmp_path, "identity-sanitizer", {
         "encoding.py": "def sanitize_output(value):\n    return value\n",
