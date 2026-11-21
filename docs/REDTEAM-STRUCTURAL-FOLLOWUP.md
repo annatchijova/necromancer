@@ -15,10 +15,19 @@ synthetic repositories and did not execute the inspected source.
 The scope, parse caching, and benchmark fixes were published in `e5d216e`.
 The backend suite passed 92/92 with those changes.
 
-A subsequent local optimization cached each rule's candidate search, including
-an empty result, for one evaluation. The fixture observed three sanitization
-search calls before the change and one afterward, with the same findings. The
+Commit `bd0cb79` cached each rule's candidate search, including an empty
+result, for one evaluation. The fixture observed three sanitization search
+calls before the change and one afterward, with the same findings. The
 backend suite passed 92/92 and Round 5 output matched byte for byte.
+
+Commit `7222f88` added a persistent regression in
+[`tests/test_qualification_round4.py`](../tests/test_qualification_round4.py).
+It detected a test-helper finding on `a9c3ded` and a repeated search on
+`e5d216e`. The current suite passed 93/93. Run the focused check with:
+
+```bash
+python -m pytest -q tests/test_qualification_round4.py -k reuses_missing_candidate
+```
 
 Structural findings still require evidence tying the selected function to the
 documented flow. The fixtures measure detector behavior on these cases.
