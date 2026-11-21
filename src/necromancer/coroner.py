@@ -190,7 +190,7 @@ def _word_set(text: str) -> set[str]:
     }
 
 
-def _partial_validation_gap(claim: Claim, trees: Callable[[], Iterator[tuple[str, ast.Module]]]):
+def _partial_validation_gap(trees: Callable[[], Iterator[tuple[str, ast.Module]]]):
     """Return a candidate gap in explicit parameter assertions.
 
     This intentionally recognizes only the narrow, inspectable pattern where
@@ -198,10 +198,6 @@ def _partial_validation_gap(claim: Claim, trees: Callable[[], Iterator[tuple[str
     every named parameter to a call, and explicit assertions validate only a
     strict subset. It does not execute target code or infer a callee's intent.
     """
-    lower = claim.text.lower()
-    if claim.verb != "VALIDATED" or not re.search(
-            r"\ball\b.{0,80}\binput\b.{0,80}\bvalidat", lower):
-        return None
     for path, tree in trees():
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -232,10 +228,8 @@ def _partial_validation_gap(claim: Claim, trees: Callable[[], Iterator[tuple[str
     return None
 
 
-def _identity_sanitizer(claim: Claim, trees: Callable[[], Iterator[tuple[str, ast.Module]]]):
+def _identity_sanitizer(trees: Callable[[], Iterator[tuple[str, ast.Module]]]):
     """Return a candidate sanitizer with a return of its parameter name."""
-    if claim.verb != "SANITIZED":
-        return None
     for path, tree in trees():
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
@@ -321,6 +315,14 @@ def evaluate_claims(excavation: Excavation, claims: list[Claim]):
             tree = parse_python(path)
             if tree is not None:
                 yield path, tree
+
+    @cache
+    def find_validation_gap():
+        return _partial_validation_gap(python_trees)
+
+    @cache
+    def find_identity_sanitizer():
+        return _identity_sanitizer(python_trees)
 
     fix_commits = _fix_commits(excavation)
     reverts = [c for c in excavation.commits if c.subject.lower().startswith("revert")]
@@ -499,7 +501,10 @@ def evaluate_claims(excavation: Excavation, claims: list[Claim]):
                     claim.rationale = "Negated claim; no matching code or stub was found to agree or disagree."
                     claim.falsifier = "Resolved by locating the feature or its stub."
                 continue
-            validation_gap = _partial_validation_gap(claim, python_trees)
+            validation_gap = None
+            if claim.verb == "VALIDATED" and re.search(
+                    r"\ball\b.{0,80}\binput\b.{0,80}\bvalidat", claim.text.lower()):
+                validation_gap = find_validation_gap()
             if validation_gap is not None:
                 path, function, unvalidated = validation_gap
                 potential(
@@ -507,7 +512,7 @@ def evaluate_claims(excavation: Excavation, claims: list[Claim]):
                     f"Assertions in {function} in {path} omit {', '.join(unvalidated)}. "
                     "Validation elsewhere and the link to the documented flow require review.",
                 )
-            identity_sanitizer = _identity_sanitizer(claim, python_trees)
+            identity_sanitizer = find_identity_sanitizer() if claim.verb == "SANITIZED" else None
             if identity_sanitizer is not None:
                 path, function, parameter = identity_sanitizer
                 potential(
