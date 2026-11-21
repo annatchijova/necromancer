@@ -165,18 +165,15 @@ def main() -> int:
     # passes under flipped labels is scoring something else.
     flipped = [(case, cur) for case, cur, _d in rows
                if case["expected"] in ("CONFIRMED", "NONE")]
-    flipped_pass = sum(
+    binary_pass = sum(
         1 for case, cur in flipped
-        if ("CONFIRMED" if cur == "CONFIRMED" else "NONE")
-        == ("NONE" if case["expected"] == "CONFIRMED" else "CONFIRMED"))
+        if ("CONFIRMED" if cur == "CONFIRMED" else "NONE") == case["expected"])
+    flipped_pass = len(flipped) - binary_pass
     exact_pass = sum(1 for case, cur, _d in rows if cur == case["expected"])
     print()
-    print(f"negative control: binary labels flipped on {len(flipped)} decided "
-          f"cases; flipped exact-pass={flipped_pass}, original exact-pass="
-          f"{exact_pass}/{len(rows)}. The flipped run must score strictly "
-          "worse; a harness that cannot fail would tie or win.")
-    print(f"exact-match misses (D-round4): "
-          f"{sum(1 for case, cur, _d in rows if cur != case['expected'])}/{len(rows)}")
+    print(f"negative control (D-current, {len(flipped)} binary cases): "
+          f"original={binary_pass}/{len(flipped)}, flipped={flipped_pass}/{len(flipped)}")
+    print(f"exact-match misses (D-current): {len(rows) - exact_pass}/{len(rows)}")
     return 0
 
 
