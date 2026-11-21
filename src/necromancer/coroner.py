@@ -7,6 +7,7 @@ refutation (invariant I2).
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import re
 from pathlib import Path
@@ -185,6 +186,78 @@ def _word_set(text: str) -> set[str]:
         word for word in re.findall(r"[a-záéíóúñü0-9][a-záéíóúñü0-9\-]{2,}", text.lower())
         if word not in _STOPWORDS
     }
+
+
+def _partial_validation_gap(claim: Claim, code_texts: dict[str, str]):
+    """Return a candidate gap in explicit parameter assertions.
+
+    This intentionally recognizes only the narrow, inspectable pattern where
+    a claim says all input is validated before storage, a function forwards
+    every named parameter to a call, and explicit assertions validate only a
+    strict subset. It does not execute target code or infer a callee's intent.
+    """
+    lower = claim.text.lower()
+    if claim.verb != "VALIDATED" or not re.search(
+            r"\ball\b.{0,80}\binput\b.{0,80}\bvalidat", lower):
+        return None
+    for path in sorted(code_texts):
+        try:
+            tree = ast.parse(code_texts[path], filename=path)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            parameters = [arg.arg for arg in (
+                [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]
+            )]
+            if len(parameters) < 2:
+                continue
+            validated = {
+                name.id for assertion in ast.walk(node)
+                if isinstance(assertion, ast.Assert)
+                for name in ast.walk(assertion.test)
+                if isinstance(name, ast.Name) and name.id in parameters
+            }
+            if not validated or validated == set(parameters):
+                continue
+            forwarded = any(
+                set(parameters).issubset({
+                    name.id for argument in call.args
+                    for name in ast.walk(argument)
+                    if isinstance(name, ast.Name)
+                })
+                for call in ast.walk(node) if isinstance(call, ast.Call)
+            )
+            if forwarded:
+                return path, node.name, tuple(sorted(set(parameters) - validated))
+    return None
+
+
+def _identity_sanitizer(claim: Claim, code_texts: dict[str, str]):
+    """Return a candidate sanitizer with a return of its parameter name."""
+    if claim.verb != "SANITIZED":
+        return None
+    for path in sorted(code_texts):
+        try:
+            tree = ast.parse(code_texts[path], filename=path)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                    or "sanit" not in node.name.lower():
+                continue
+            parameters = [arg.arg for arg in (
+                [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]
+            )]
+            if len(parameters) != 1:
+                continue
+            returned = [child.value for child in ast.walk(node)
+                        if isinstance(child, ast.Return) and child.value is not None]
+            if len(returned) == 1 and isinstance(returned[0], ast.Name) \
+                    and returned[0].id == parameters[0]:
+                return path, node.name, parameters[0]
+    return None
 
 
 _GENERIC_VERB_WORDS = {
@@ -413,6 +486,22 @@ def evaluate_claims(excavation: Excavation, claims: list[Claim]):
                     claim.rationale = "Negated claim; no matching code or stub was found to agree or disagree."
                     claim.falsifier = "Resolved by locating the feature or its stub."
                 continue
+            validation_gap = _partial_validation_gap(claim, code_texts)
+            if validation_gap is not None:
+                path, function, unvalidated = validation_gap
+                potential(
+                    claim, path, "PARTIAL_VALIDATION",
+                    f"Assertions in {function} in {path} omit {', '.join(unvalidated)}. "
+                    "Validation elsewhere and the link to the documented flow require review.",
+                )
+            identity_sanitizer = _identity_sanitizer(claim, code_texts)
+            if identity_sanitizer is not None:
+                path, function, parameter = identity_sanitizer
+                potential(
+                    claim, path, "IDENTITY_SANITIZER",
+                    f"{function} in {path} returns the name {parameter}. "
+                    "Its behavior and the link to the documented flow require review.",
+                )
             stub_paths = [
                 p for p, text in code_texts.items()
                 if _INCOMPLETE_RE.search(text)

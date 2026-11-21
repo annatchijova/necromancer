@@ -221,3 +221,31 @@ def test_oversized_text_is_skipped_and_reported(tmp_path):
     assert excavation.stats["texts_skipped_over_cap"] == 1
     assert any("not text-indexed" in warning for warning in excavation.warnings)
     assert "big.py" not in excavation.texts
+
+
+def test_universal_validation_claim_detects_partial_parameter_validation(tmp_path):
+    repo = _make(tmp_path, "partial-validation", {
+        "store.py": (
+            "def store(name, bio, url):\n"
+            "    assert name.isalnum()\n"
+            "    save(name, bio, url)\n"
+        ),
+        "README.md": "# P\n\nAll user input is validated before storage.\n",
+    })
+    report = investigate(str(repo))
+    claim = next(c for c in report.claims if c.verb == "VALIDATED")
+    assert claim.state != ClaimState.CONTRADICTED
+    assert any(item.kind == "PARTIAL_VALIDATION" and item.qualification == "POTENTIAL"
+               for item in report.contradictions if item.claim_id == claim.claim_id)
+
+
+def test_sanitization_claim_detects_identity_sanitizer(tmp_path):
+    repo = _make(tmp_path, "identity-sanitizer", {
+        "encoding.py": "def sanitize_output(value):\n    return value\n",
+        "README.md": "# P\n\nUser output is sanitized before rendering.\n",
+    })
+    report = investigate(str(repo))
+    claim = next(c for c in report.claims if c.verb == "SANITIZED")
+    assert claim.state != ClaimState.CONTRADICTED
+    assert any(item.kind == "IDENTITY_SANITIZER" and item.qualification == "POTENTIAL"
+               for item in report.contradictions if item.claim_id == claim.claim_id)

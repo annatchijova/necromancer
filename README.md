@@ -144,8 +144,8 @@ harness with `python scripts/scale_benchmark.py`.
 Round 5 then attacked that result with a fresh, frozen evaluation set
 it had never seen, real-repository adjudication, a full stress test on
 a 1,247-commit repository, and a real browser run. It found and fixed
-six more ways to fabricate a contradiction — and recorded the two kinds
-it still honestly misses. Details:
+six more ways to fabricate a contradiction. A follow-up structural pass
+surfaces both planted lexical misses as potential contradictions for review. Details:
 [docs/EPISTEMIC-CALIBRATION.md](docs/EPISTEMIC-CALIBRATION.md) and
 [docs/REDTEAM-ROUND5.md](docs/REDTEAM-ROUND5.md).
 

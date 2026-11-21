@@ -17,7 +17,8 @@ python benchmarks/round5/run_evaluation.py
 
 - Partition: `evaluation-new` (16 cases). No case paraphrases a Round 4
   calibration case; two categories (narrower implementation, different
-  vocabulary) were planted specifically as expected false negatives.
+  vocabulary) were planted to expose lexical false negatives. A later
+  structural pass may close those cases only with separately reported results.
 - Label provenance: same-agent construction. The agent planted each
   fixture and labeled it from what was planted. This is NOT independent
   human adjudication, and the set must never be described as externally

@@ -138,11 +138,15 @@ tests (details in `docs/REDTEAM-ROUND5.md`):
 
 Post-repair on the same frozen set: precision 1.000 (Wilson 0.510–1.000,
 n=4 confirms), recall 0.667 (0.300–0.903, n=6), abstention 0.250,
-exact match 14/16. The two remaining misses are planted genuine
-contradictions the lexical engine cannot establish — a guarantee
-narrower in implementation than in documentation, and a stub described
-in different vocabulary. They are recorded as false negatives, not
-relabelled. Answering the round's central question: Round 4 genuinely
+exact match 14/16. At this recorded Round 5 revision, the two remaining misses
+are planted genuine contradictions the lexical engine cannot establish — a
+guarantee narrower in implementation than in documentation, and a stub
+described in different vocabulary. They were recorded as false negatives, not
+relabelled. The structural follow-up rerun on the same frozen case set
+(`02cb197ba7616316`) matched 14/16 labels. Both lexical misses now produce
+POTENTIAL findings. The AST patterns identify functions for review, while
+confirming either claim requires evidence that the function participates in
+the documented flow and that validation or sanitization is absent there. Answering the round's central question: Round 4 genuinely
 reduced false positives (H1 holds for marker, modality, documentation
 and abandonment categories), AND introduced/masked false negatives and
 fan-out defects that only the new set and VIGÍA exposed (H2/H4). H3
