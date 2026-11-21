@@ -163,16 +163,17 @@ def main() -> int:
     # Negative control: flip the binary ground truth (CONFIRMED <-> NONE,
     # POTENTIAL excluded as an abstention class). A harness that still
     # passes under flipped labels is scoring something else.
-    flipped = [(case, cur) for case, cur, _d in rows
-               if case["expected"] in ("CONFIRMED", "NONE")]
-    binary_pass = sum(
-        1 for case, cur in flipped
-        if ("CONFIRMED" if cur == "CONFIRMED" else "NONE") == case["expected"])
-    flipped_pass = len(flipped) - binary_pass
+    binary_rows = [
+        (case["expected"], "CONFIRMED" if cur == "CONFIRMED" else "NONE")
+        for case, cur, _d in rows if case["expected"] in ("CONFIRMED", "NONE")
+    ]
+    inverse = {"CONFIRMED": "NONE", "NONE": "CONFIRMED"}
+    binary_pass = sum(expected == predicted for expected, predicted in binary_rows)
+    flipped_pass = sum(inverse[expected] == predicted for expected, predicted in binary_rows)
     exact_pass = sum(1 for case, cur, _d in rows if cur == case["expected"])
     print()
-    print(f"negative control (D-current, {len(flipped)} binary cases): "
-          f"original={binary_pass}/{len(flipped)}, flipped={flipped_pass}/{len(flipped)}")
+    print(f"negative control (D-current, {len(binary_rows)} binary cases): "
+          f"original={binary_pass}/{len(binary_rows)}, flipped={flipped_pass}/{len(binary_rows)}")
     print(f"exact-match misses (D-current): {len(rows) - exact_pass}/{len(rows)}")
     return 0
 

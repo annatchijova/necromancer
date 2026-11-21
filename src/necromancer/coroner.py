@@ -10,6 +10,8 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
+from collections.abc import Callable, Iterator
+from functools import cache
 from pathlib import Path
 
 from .excavator import Excavation
@@ -188,7 +190,7 @@ def _word_set(text: str) -> set[str]:
     }
 
 
-def _partial_validation_gap(claim: Claim, code_texts: dict[str, str]):
+def _partial_validation_gap(claim: Claim, trees: Callable[[], Iterator[tuple[str, ast.Module]]]):
     """Return a candidate gap in explicit parameter assertions.
 
     This intentionally recognizes only the narrow, inspectable pattern where
@@ -200,11 +202,7 @@ def _partial_validation_gap(claim: Claim, code_texts: dict[str, str]):
     if claim.verb != "VALIDATED" or not re.search(
             r"\ball\b.{0,80}\binput\b.{0,80}\bvalidat", lower):
         return None
-    for path in sorted(code_texts):
-        try:
-            tree = ast.parse(code_texts[path], filename=path)
-        except SyntaxError:
-            continue
+    for path, tree in trees():
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
@@ -234,15 +232,11 @@ def _partial_validation_gap(claim: Claim, code_texts: dict[str, str]):
     return None
 
 
-def _identity_sanitizer(claim: Claim, code_texts: dict[str, str]):
+def _identity_sanitizer(claim: Claim, trees: Callable[[], Iterator[tuple[str, ast.Module]]]):
     """Return a candidate sanitizer with a return of its parameter name."""
     if claim.verb != "SANITIZED":
         return None
-    for path in sorted(code_texts):
-        try:
-            tree = ast.parse(code_texts[path], filename=path)
-        except SyntaxError:
-            continue
+    for path, tree in trees():
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
                     or "sanit" not in node.name.lower():
@@ -309,6 +303,25 @@ def evaluate_claims(excavation: Excavation, claims: list[Claim]):
     code, tests, code_texts = _corpora(excavation)
     test_paths = [a.path for a in excavation.artifacts if a.kind == "TEST"]
     kind_by_path = {a.path: a.kind for a in excavation.artifacts}
+    python_paths = sorted(
+        path for path, source in code_texts.items()
+        if source and kind_by_path[path] == "CODE" and Path(path).suffix.lower() == ".py"
+        and "tests" not in Path(path.lower()).parts[:-1]
+    )
+
+    @cache
+    def parse_python(path: str) -> ast.Module | None:
+        try:
+            return ast.parse(code_texts[path], filename=path)
+        except SyntaxError:
+            return None
+
+    def python_trees() -> Iterator[tuple[str, ast.Module]]:
+        for path in python_paths:
+            tree = parse_python(path)
+            if tree is not None:
+                yield path, tree
+
     fix_commits = _fix_commits(excavation)
     reverts = [c for c in excavation.commits if c.subject.lower().startswith("revert")]
     links: list[EvidenceLink] = []
@@ -486,7 +499,7 @@ def evaluate_claims(excavation: Excavation, claims: list[Claim]):
                     claim.rationale = "Negated claim; no matching code or stub was found to agree or disagree."
                     claim.falsifier = "Resolved by locating the feature or its stub."
                 continue
-            validation_gap = _partial_validation_gap(claim, code_texts)
+            validation_gap = _partial_validation_gap(claim, python_trees)
             if validation_gap is not None:
                 path, function, unvalidated = validation_gap
                 potential(
@@ -494,7 +507,7 @@ def evaluate_claims(excavation: Excavation, claims: list[Claim]):
                     f"Assertions in {function} in {path} omit {', '.join(unvalidated)}. "
                     "Validation elsewhere and the link to the documented flow require review.",
                 )
-            identity_sanitizer = _identity_sanitizer(claim, code_texts)
+            identity_sanitizer = _identity_sanitizer(claim, python_trees)
             if identity_sanitizer is not None:
                 path, function, parameter = identity_sanitizer
                 potential(
