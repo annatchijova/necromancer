@@ -1,7 +1,7 @@
 # Project status and inventory
 
 Honest inventory of what exists, what does not, and what comes next.
-Updated at the end of Round 4 (epistemic calibration round). Nothing in
+Updated through the structural red-team follow-up. Nothing in
 the incomplete column is simulated or presented as working.
 
 ## Completed
@@ -44,9 +44,14 @@ Round 5 additions:
 | Browser verification: Playwright/Chromium, 18/18 workflow checks, screenshot inspected | `docs/REDTEAM-ROUND5.md` |
 | Aggressive red team (Round 6): health quote/fence fabrication found and fixed; 12 vectors falsified | `docs/REDTEAM-ROUND6.md`, `health.py` |
 
-Test baseline at this inventory: 90 backend tests passing, frontend
-production build passing, browser workflow verified headless at
-1280x900. Detector calibration against real mixed-language repositories
+The [structural follow-up](REDTEAM-STRUCTURAL-FOLLOWUP.md) records the
+AST evidence rules, scope and cache checks, and the persistent regression.
+Round 5 still matches 14/16 frozen labels, with two expected CONFIRMED
+cases reported as POTENTIAL.
+
+The structural follow-up passed 93 backend tests. Round 5 recorded a
+passing frontend production build and verified the workbench in headless
+Chromium at 1280x900. Detector calibration against real mixed-language repositories
 is recorded in `docs/CALIBRATION.md` and
 `docs/EPISTEMIC-CALIBRATION.md`. Real-world precision remains
 unmeasured; all real-repository labels are provisional.
@@ -58,7 +63,6 @@ unmeasured; all real-repository labels are provisional.
 | GitHub API enrichment (issues, PRs, CI history) | Health analysis cannot see maintenance discussion | Not fetched; health says `STATUS_UNKNOWN` when evidence is missing |
 | Trusted `VERIFIED` ingestion | No claim can currently exceed `SUPPORTED` from excavation alone | Requires a trusted test-execution evidence format; deliberately absent |
 | Investigation cache | Large histories are re-excavated per API/MCP call | Correct but slow; stored reports mitigate reopening, not re-analysis |
-| Browser-verified UI | The workbench was exercised over HTTP and build, not in a real browser | Visual and interaction behavior in a browser is unverified |
 | Live GitHub acquisition test | Acquisition is tested with controlled runners, not the real network | Parser and limits are proven; real clone behavior is not |
 | Graph scalability | Web drawing caps nodes and edges | Clusters, focus neighbourhoods and fan-out shipped in Round 4; the drawing still caps rendered nodes, with the full edge list and JSON export beside it |
 | Held-out calibration | The Round 4 benchmark cases were spent during development | Validation only, n=10, Wilson intervals printed; no real-world accuracy claimed |
@@ -69,18 +73,15 @@ unmeasured; all real-repository labels are provisional.
 | CI action pinning by digest | Supply-chain hardening for the workflow file | Actions are tag-pinned; digest pinning is open |
 | Authenticated or remote API use | The API is loopback-only by design | No authority layer exists; do not expose it |
 
-## Recommended next round (Round 5)
+## Recommended next steps
 
-1. A held-out calibration set, built blind from real repositories and
-   hand-adjudicated, so precision/recall stop being synthetic-only.
-2. Run the scale harness against VIGÍA if it becomes available, and
-   publish the measured numbers or the failure, whichever occurs.
-3. Trusted verification-evidence ingestion so a real test run can
+1. Build a held-out calibration set from real repositories with independent
+   human adjudication to measure real-world precision and recall.
+2. Design trusted verification-evidence ingestion so a real test run can
    upgrade a claim to `VERIFIED` with its own provenance chain.
-4. Investigation caching keyed by HEAD plus snapshot scope, invalidated
-   exactly when either changes; partial-index resume after cancellation.
-5. Real-browser verification of the workbench, digest-pinned CI actions
-   and a first tagged release.
+3. Design investigation caching around HEAD and snapshot scope, then add
+   partial-index recovery after cancellation.
+4. Pin CI actions by digest and prepare a first tagged release.
 
 The standing rule is unchanged: fewer levels, built correctly, over
 broader simulation. A defensible UNKNOWN beats a fabricated
